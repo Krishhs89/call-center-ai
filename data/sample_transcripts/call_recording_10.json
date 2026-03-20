@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_10",
+  "category": "compliment",
+  "call_type": "Compliment",
+  "sentiment": "Happy",
+  "customer_name": "Christopher Green",
+  "order_number": "876543",
+  "product_number": "PR-9876",
+  "audio_file": "archive/call_recording_10.wav",
+  "transcript": "I'm calling to express my satisfaction with the PR-9876 printer I bought from your company. My name is Christopher Green, and my order number is 876543. It was easy to set up, and the print quality is excellent. I especially appreciate the fast printing speed. It has significantly improved my productivity. Thank you!\""
+}

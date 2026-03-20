@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_03",
+  "category": "technical_support",
+  "call_type": "Technical Issue",
+  "sentiment": "Frustrated",
+  "customer_name": "Maria Rodriguez",
+  "order_number": "987654",
+  "product_number": "LAP-2110",
+  "audio_file": "archive/call_recording_03.wav",
+  "transcript": "Hi, this is Maria Rodriguez. I'm having trouble with my LAP-2110 laptop, order number 987654. The Wi-Fi keeps disconnecting, and I can't get a stable internet connection. I've tried restarting it multiple times, and I've checked my router, but everything else is working fine. This is incredibly frustrating; I need this for work. Can you please help me troubleshoot this?"
+}

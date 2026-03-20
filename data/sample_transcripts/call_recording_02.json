@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_02",
+  "category": "complaint",
+  "call_type": "Complaint",
+  "sentiment": "Angry",
+  "customer_name": "John Davis",
+  "order_number": "123456",
+  "product_number": "FR-4401",
+  "audio_file": "archive/call_recording_02.wav",
+  "transcript": "I am extremely dissatisfied with my recent order! I am John Davis, and I'm calling about order number 123456. The FR-4401 refrigerator arrived yesterday, and it's damaged. There's a huge dent on the side, and it's not cooling properly. I want to know what you're going to do about this. I demand a replacement, and I want it delivered as soon as possible. I've been without a working refrigerator for two days now!"
+}

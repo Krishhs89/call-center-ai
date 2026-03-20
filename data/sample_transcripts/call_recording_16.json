@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_16",
+  "category": "product_inquiry",
+  "call_type": "Product Inquiry",
+  "sentiment": "Neutral",
+  "customer_name": "Brian Thompson",
+  "order_number": "N/A",
+  "product_number": "TABLET-Z",
+  "audio_file": "archive/call_recording_16.wav",
+  "transcript": "Hello, my name is Brian Thompson. I have a question about the TABLET-Z. I'm interested in its battery life. What is the typical usage time on a full charge? Also, does it support expandable storage with a microSD card? I couldn't find that information on the website."
+}

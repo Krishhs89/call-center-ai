@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_08",
+  "category": "technical_support",
+  "call_type": "Technical Issue",
+  "sentiment": "Neutral",
+  "customer_name": "Michael Brown",
+  "order_number": "345678",
+  "product_number": "ROUT-5678",
+  "audio_file": "archive/call_recording_08.wav",
+  "transcript": "Hello, my name is Michael Brown. I need some technical assistance with the ROUT-5678 router I purchased from you. My order number is 345678. I'm trying to set up a guest network, but the option seems to be missing from the settings menu. I've followed the instructions in the manual, but it's not working. Can you walk me through the setup process?"
+}

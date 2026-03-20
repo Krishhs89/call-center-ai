@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_07",
+  "category": "complaint",
+  "call_type": "Complaint",
+  "sentiment": "Angry",
+  "customer_name": "Linda Garcia",
+  "order_number": "654321",
+  "product_number": "HD-2771",
+  "audio_file": "archive/call_recording_07.wav",
+  "transcript": "I'm calling about the HD-2771 hard drive I ordered. This is Linda Garcia, and the order number is 654321. It was supposed to arrive three days ago, and I haven't received any updates. The tracking information online is useless. I need this for my business, and this delay is causing problems. Can you please look into this and tell me where my order is?"
+}

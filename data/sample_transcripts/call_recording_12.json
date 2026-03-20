@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_12",
+  "category": "complaint",
+  "call_type": "Complaint",
+  "sentiment": "Angry",
+  "customer_name": "Kevin Lee",
+  "order_number": "234567",
+  "product_number": "SOFA-123",
+  "audio_file": "archive/call_recording_12.wav",
+  "transcript": "I am writing to express my disappointment with the SOFA-123 sofa I recently purchased. My name is Kevin Lee, and the order number is 234567. The color is significantly different from what was advertised online. It's much lighter, and it doesn't match my living room decor. I would like to discuss the possibility of returning this item or receiving a partial refund."
+}

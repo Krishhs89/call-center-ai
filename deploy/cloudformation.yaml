@@ -1,0 +1,202 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Call Center AI Assistant — EC2 + Docker deployment.
+  Provisions a t3.small instance behind an Elastic IP, pulls the app image
+  from ECR, and injects API keys from SSM Parameter Store at boot time.
+
+# ── Parameters ────────────────────────────────────────────────────────────────
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.micro, t3.small, t3.medium]
+    Description: EC2 instance size (t3.small recommended)
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Name of an existing EC2 Key Pair for SSH access
+
+  ECRImageURI:
+    Type: String
+    Description: >
+      Full ECR image URI, e.g.
+      123456789012.dkr.ecr.us-east-1.amazonaws.com/call-center-ai:latest
+
+  SSMPrefix:
+    Type: String
+    Default: /call-center-ai
+    Description: SSM Parameter Store prefix used when storing API keys
+
+  DefaultLLM:
+    Type: String
+    Default: claude
+    AllowedValues: [claude, gpt4, gemini]
+    Description: Default LLM model to use
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── IAM: allow EC2 to read ECR images and SSM secrets ─────────────────────
+  AppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "CallCenterAI-EC2-Role-${AWS::StackName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        - arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
+      Tags:
+        - Key: Project
+          Value: CallCenterAI
+
+  AppInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref AppRole
+
+  # ── Security Group: ports 22 (SSH), 80 (HTTP), 8501 (Streamlit) ───────────
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Call Center AI — allow SSH and Streamlit
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP (nginx proxy — future)
+        - IpProtocol: tcp
+          FromPort: 8501
+          ToPort: 8501
+          CidrIp: 0.0.0.0/0
+          Description: Streamlit UI
+      Tags:
+        - Key: Project
+          Value: CallCenterAI
+
+  # ── Elastic IP: stable public address that survives instance restarts ──────
+  AppEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Project
+          Value: CallCenterAI
+
+  # ── EC2 Instance ───────────────────────────────────────────────────────────
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      # Amazon Linux 2023 (latest, resolved at deploy time via SSM)
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+      IamInstanceProfile: !Ref AppInstanceProfile
+      SecurityGroups:
+        - !Ref AppSecurityGroup
+      KeyName: !Ref KeyPairName
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 20   # GB — enough for Docker images
+            VolumeType: gp3
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: !Sub "CallCenterAI-${AWS::StackName}"
+        - Key: Project
+          Value: CallCenterAI
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
+
+          echo "=== [1/5] System update ==="
+          yum update -y
+
+          echo "=== [2/5] Install Docker ==="
+          yum install -y docker
+          systemctl start docker
+          systemctl enable docker
+          usermod -aG docker ec2-user
+
+          echo "=== [3/5] Authenticate to ECR ==="
+          REGION="${AWS::Region}"
+          ACCOUNT_ID=$(echo "${ECRImageURI}" | cut -d'.' -f1)
+          aws ecr get-login-password --region "$REGION" \
+            | docker login --username AWS --password-stdin \
+              "${!ACCOUNT_ID}.dkr.ecr.${!REGION}.amazonaws.com"
+
+          echo "=== [4/5] Fetch API keys from SSM ==="
+          fetch_param() {
+            aws ssm get-parameter \
+              --name "$1" \
+              --with-decryption \
+              --query "Parameter.Value" \
+              --output text \
+              --region "$REGION" 2>/dev/null || echo ""
+          }
+
+          ANTHROPIC_API_KEY=$(fetch_param "${SSMPrefix}/ANTHROPIC_API_KEY")
+          OPENAI_API_KEY=$(fetch_param "${SSMPrefix}/OPENAI_API_KEY")
+          GOOGLE_API_KEY=$(fetch_param "${SSMPrefix}/GOOGLE_API_KEY")
+
+          echo "=== [5/5] Pull image and start container ==="
+          docker pull "${ECRImageURI}"
+
+          docker run -d \
+            --name call-center-ai \
+            --restart unless-stopped \
+            -p 8501:8501 \
+            -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+            -e OPENAI_API_KEY="$OPENAI_API_KEY" \
+            -e GOOGLE_API_KEY="$GOOGLE_API_KEY" \
+            -e DEFAULT_LLM="${DefaultLLM}" \
+            -e MOCK_LLM="false" \
+            -e LOG_LEVEL="INFO" \
+            -e CLAUDE_MODEL="claude-sonnet-4-5-20250929" \
+            -e GPT4_MODEL="gpt-4o" \
+            -e GEMINI_MODEL="gemini-2.5-flash" \
+            -e WHISPER_MODEL="whisper-1" \
+            "${ECRImageURI}"
+
+          echo "=== Container started. App will be available at http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):8501 ==="
+
+  # ── Associate Elastic IP with the instance ─────────────────────────────────
+  AppEIPAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref AppInstance
+      EIP: !Ref AppEIP
+
+# ── Outputs ───────────────────────────────────────────────────────────────────
+Outputs:
+  AppURL:
+    Description: Public URL to access the Streamlit app
+    Value: !Sub "http://${AppEIP}:8501"
+    Export:
+      Name: !Sub "${AWS::StackName}-AppURL"
+
+  PublicIP:
+    Description: Elastic IP address of the EC2 instance
+    Value: !Ref AppEIP
+
+  SSHCommand:
+    Description: SSH into the instance to check logs
+    Value: !Sub "ssh -i <your-key>.pem ec2-user@${AppEIP}"
+
+  DockerLogsCommand:
+    Description: Tail container logs after SSH
+    Value: "docker logs -f call-center-ai"

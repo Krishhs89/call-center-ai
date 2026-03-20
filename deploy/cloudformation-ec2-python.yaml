@@ -1,0 +1,211 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Call Center AI — EC2 + Python (no Docker) deployment.
+  Downloads the application bundle from S3, installs Python 3.11 + dependencies,
+  and runs Streamlit as a systemd service. API keys are pulled from SSM.
+
+# ── Parameters ────────────────────────────────────────────────────────────────
+Parameters:
+  InstanceType:
+    Type: String
+    Default: t3.small
+    AllowedValues: [t3.micro, t3.small, t3.medium]
+
+  KeyPairName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Key Pair for SSH access
+
+  S3BucketName:
+    Type: String
+    Description: S3 bucket that holds the call_center_ai.zip code bundle
+
+  S3ObjectKey:
+    Type: String
+    Default: call_center_ai.zip
+    Description: Key (path) of the zip file inside the S3 bucket
+
+  SSMPrefix:
+    Type: String
+    Default: /call-center-ai
+
+  DefaultLLM:
+    Type: String
+    Default: claude
+    AllowedValues: [claude, gpt4, gemini]
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── IAM ─────────────────────────────────────────────────────────────────────
+  AppRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "CallCenterAI-Role-${AWS::StackName}"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
+      Policies:
+        - PolicyName: S3ReadBundle
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:HeadObject]
+                Resource: !Sub "arn:aws:s3:::${S3BucketName}/${S3ObjectKey}"
+
+  AppInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles: [!Ref AppRole]
+
+  # ── Security Group ───────────────────────────────────────────────────────────
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Call Center AI — SSH + Streamlit
+      SecurityGroupIngress:
+        - {IpProtocol: tcp, FromPort: 22,   ToPort: 22,   CidrIp: "0.0.0.0/0", Description: SSH}
+        - {IpProtocol: tcp, FromPort: 80,   ToPort: 80,   CidrIp: "0.0.0.0/0", Description: HTTP}
+        - {IpProtocol: tcp, FromPort: 8501, ToPort: 8501, CidrIp: "0.0.0.0/0", Description: Streamlit}
+      Tags: [{Key: Project, Value: CallCenterAI}]
+
+  # ── Elastic IP ───────────────────────────────────────────────────────────────
+  AppEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags: [{Key: Project, Value: CallCenterAI}]
+
+  # ── EC2 Instance ─────────────────────────────────────────────────────────────
+  AppInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: "{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}"
+      IamInstanceProfile: !Ref AppInstanceProfile
+      SecurityGroups: [!Ref AppSecurityGroup]
+      KeyName: !Ref KeyPairName
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 20
+            VolumeType: gp3
+            DeleteOnTermination: true
+      Tags:
+        - {Key: Name,    Value: !Sub "CallCenterAI-${AWS::StackName}"}
+        - {Key: Project, Value: CallCenterAI}
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          exec > >(tee /var/log/user-data.log | logger -t user-data -s 2>/dev/console) 2>&1
+
+          REGION="${AWS::Region}"
+          APP_DIR="/opt/call-center-ai"
+
+          echo "=== [1/6] System update ==="
+          dnf update -y
+          dnf install -y python3.11 python3.11-pip python3.11-devel gcc unzip aws-cli
+
+          echo "=== [2/6] Download application bundle from S3 ==="
+          mkdir -p "$APP_DIR"
+          aws s3 cp "s3://${S3BucketName}/${S3ObjectKey}" /tmp/app.zip --region "$REGION"
+          unzip -o /tmp/app.zip -d "$APP_DIR"
+          rm /tmp/app.zip
+
+          echo "=== [3/6] Install Python dependencies ==="
+          cd "$APP_DIR"
+          python3.11 -m pip install --upgrade pip
+          python3.11 -m pip install -r requirements.txt
+
+          echo "=== [4/6] Fetch API keys from SSM ==="
+          fetch() {
+            aws ssm get-parameter --name "$1" \
+              --with-decryption --query Parameter.Value \
+              --output text --region "$REGION" 2>/dev/null || echo ""
+          }
+
+          ANTHROPIC_API_KEY=$(fetch "${SSMPrefix}/ANTHROPIC_API_KEY")
+          OPENAI_API_KEY=$(fetch "${SSMPrefix}/OPENAI_API_KEY")
+          GOOGLE_API_KEY=$(fetch "${SSMPrefix}/GOOGLE_API_KEY")
+
+          echo "=== [5/6] Write environment file ==="
+          cat > "$APP_DIR/.env" <<EOF
+          ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+          OPENAI_API_KEY=$OPENAI_API_KEY
+          GOOGLE_API_KEY=$GOOGLE_API_KEY
+          DEFAULT_LLM=${DefaultLLM}
+          MOCK_LLM=false
+          LOG_LEVEL=INFO
+          CLAUDE_MODEL=claude-sonnet-4-5-20250929
+          GPT4_MODEL=gpt-4o
+          GEMINI_MODEL=gemini-2.5-flash
+          WHISPER_MODEL=whisper-1
+          EOF
+
+          echo "=== [6/6] Create and start systemd service ==="
+          STREAMLIT_BIN=$(python3.11 -m site --user-base 2>/dev/null || echo "")/bin/streamlit
+          STREAMLIT_BIN=$(which streamlit 2>/dev/null || python3.11 -c "import streamlit; print(streamlit.__file__)" 2>/dev/null | xargs dirname)/streamlit
+          # Fallback: use python -m streamlit
+          cat > /etc/systemd/system/call-center-ai.service <<UNIT
+          [Unit]
+          Description=Call Center AI Streamlit App
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=ec2-user
+          WorkingDirectory=$APP_DIR
+          ExecStart=python3.11 -m streamlit run ui/streamlit_app.py \
+            --server.port=8501 \
+            --server.address=0.0.0.0 \
+            --browser.gatherUsageStats=false
+          EnvironmentFile=$APP_DIR/.env
+          Restart=always
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
+          UNIT
+
+          # Fix ownership
+          chown -R ec2-user:ec2-user "$APP_DIR"
+
+          systemctl daemon-reload
+          systemctl enable call-center-ai
+          systemctl start call-center-ai
+
+          PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+          echo "=== Done! App running at http://$PUBLIC_IP:8501 ==="
+
+  AppEIPAssoc:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref AppInstance
+      EIP: !Ref AppEIP
+
+# ── Outputs ───────────────────────────────────────────────────────────────────
+Outputs:
+  AppURL:
+    Description: Public Streamlit URL
+    Value: !Sub "http://${AppEIP}:8501"
+    Export:
+      Name: !Sub "${AWS::StackName}-AppURL"
+
+  PublicIP:
+    Value: !Ref AppEIP
+
+  SSHCommand:
+    Value: !Sub "ssh -i <your-key>.pem ec2-user@${AppEIP}"
+
+  LogsCommand:
+    Description: Check app logs via SSH
+    Value: "sudo journalctl -u call-center-ai -f"

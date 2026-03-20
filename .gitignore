@@ -1,0 +1,41 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.coverage
+
+# Environment & secrets — NEVER commit API keys
+.env
+*.env
+
+# Large binary/media files
+archive/
+*.wav
+*.mp3
+*.m4a
+*.pptx
+*.docx
+~$*
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Data (cache regenerated at runtime)
+data/cache/
+data/call_history.jsonl
+
+# Temp
+*.tmp
+*.log

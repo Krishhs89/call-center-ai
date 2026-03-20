@@ -1,0 +1,44 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.coverage
+
+# Environment & secrets
+.env
+*.env
+
+# Large binary/media files (not needed in container)
+archive/
+*.wav
+*.mp3
+*.m4a
+*.pptx
+*.docx
+
+# Git
+.git/
+.gitignore
+
+# macOS
+.DS_Store
+~$*
+
+# Deploy scripts (not needed in container)
+deploy/
+
+# IDE
+.vscode/
+.idea/
+
+# Temp
+*.tmp
+*.log

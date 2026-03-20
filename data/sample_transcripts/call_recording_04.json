@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_04",
+  "category": "compliment",
+  "call_type": "Compliment",
+  "sentiment": "Happy",
+  "customer_name": "Robert Smith",
+  "order_number": "246801",
+  "product_number": "DW-6543",
+  "audio_file": "archive/call_recording_04.wav",
+  "transcript": "I just wanted to call and say how pleased I am with the DW-6543 dishwasher I purchased last month. My name is Robert Smith, and the order number is 246801. It's incredibly quiet, and it cleans the dishes perfectly. It's the best dishwasher I've ever owned! The delivery was also very smooth. Thank you for providing such a great product and service."
+}

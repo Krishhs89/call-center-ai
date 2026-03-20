@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_19",
+  "category": "order_placement",
+  "call_type": "Order Placement",
+  "sentiment": "Neutral",
+  "customer_name": "Patricia Collins",
+  "order_number": "N/A",
+  "product_number": "OFFICE-CHAIR-X5 & DESK-L-SHAPE-Y7 & FILING-CABINET-Z9",
+  "audio_file": "archive/call_recording_19.wav",
+  "transcript": "Good afternoon, I'd like to place a business order. My name is Patricia Collins. I need five OFFICE-CHAIR-X5 chairs, two DESK-L-SHAPE-Y7 desks, and three FILING-CABINET-Z9 filing cabinets. Please provide a detailed quote, including bulk order discounts and estimated delivery timeframe. Our company's purchase order number is to be determined."
+}

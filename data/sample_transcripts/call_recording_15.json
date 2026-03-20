@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_15",
+  "category": "compliment",
+  "call_type": "Compliment",
+  "sentiment": "Happy",
+  "customer_name": "Ashley Perez",
+  "order_number": "987654",
+  "product_number": "CAMERA-PRO-1",
+  "audio_file": "archive/call_recording_15.wav",
+  "transcript": "I'm just calling to say I'm absolutely blown away by the CAMERA-PRO-1! This is Ashley Perez, and I purchased it under order number 987654. The image quality is incredible, and it's so easy to use. I've taken some amazing photos with it already. Thank you so much for making such a fantastic product! I will definitely recommend this to all my friends."
+}

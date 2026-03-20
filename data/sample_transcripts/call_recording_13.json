@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_13",
+  "category": "technical_support",
+  "call_type": "Technical Issue",
+  "sentiment": "Frustrated",
+  "customer_name": "Jessica Williams",
+  "order_number": "456789",
+  "product_number": "SERVER-8901",
+  "audio_file": "archive/call_recording_13.wav",
+  "transcript": "I'm experiencing a critical issue with the SERVER-8901. This is Jessica Williams, and my order number is 456789. The system is down, and we've lost access to all our data. This is a major problem for our business operations. We need immediate assistance to get this back online. Please connect me with your highest-level technical support team."
+}

@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_14",
+  "category": "order_placement",
+  "call_type": "Order Placement",
+  "sentiment": "Neutral",
+  "customer_name": "Mike Johnson",
+  "order_number": "N/A",
+  "product_number": "GAME-CONSOLE-X & GAME-CONTROLLER-Y",
+  "audio_file": "archive/call_recording_14.wav",
+  "transcript": "Hey, I wanna order that new game console, the GAME-CONSOLE-X, and an extra GAME-CONTROLLER-Y. This is Mike Johnson. You guys got any deals on those right now? And how fast can you ship it to me? I'm hoping to get it by the weekend."
+}

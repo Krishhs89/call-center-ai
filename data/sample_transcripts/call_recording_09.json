@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_09",
+  "category": "order_placement",
+  "call_type": "Order Placement",
+  "sentiment": "Happy",
+  "customer_name": "Amanda White",
+  "order_number": "N/A",
+  "product_number": "MON-2345 & KB-1234 & MOUSE-4567",
+  "audio_file": "archive/call_recording_09.wav",
+  "transcript": "Hi, this is Amanda White. I'd like to place an order for a few items. I need one MON-2345 monitor, one KB-1234 keyboard, and one MOUSE-4567 mouse. Could you please confirm the availability of these items and give me the total price? I'm excited to get these, I've heard great things about them!\""
+}

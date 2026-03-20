@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_06",
+  "category": "product_inquiry",
+  "call_type": "Product Inquiry",
+  "sentiment": "Confused",
+  "customer_name": "David Wilson",
+  "order_number": "N/A",
+  "product_number": "SPK-9988",
+  "audio_file": "archive/call_recording_06.wav",
+  "transcript": "Hi, this is David Wilson. I'm looking at the SPK-9988 speaker system online, and I'm a little confused. The description says it's wireless, but then it also mentions needing a power cord. Can you explain that? Does it need to be plugged in all the time, or does it have a rechargeable battery? Also, what is the range on the wireless connection?"
+}

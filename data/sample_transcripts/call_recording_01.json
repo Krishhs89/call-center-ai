@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_01",
+  "category": "product_inquiry",
+  "call_type": "Product Inquiry",
+  "sentiment": "Neutral",
+  "customer_name": "Sarah Miller",
+  "order_number": "N/A",
+  "product_number": "AC-7892",
+  "audio_file": "archive/call_recording_01.wav",
+  "transcript": "Hello, I'm Sarah Miller. I'm calling to inquire about the AC-7892 air conditioner unit. I saw it on your website, and I had a few questions. First, what's the BTU rating? And second, does it come with a remote control, or is that sold separately?"
+}

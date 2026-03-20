@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_18",
+  "category": "technical_support",
+  "call_type": "Technical Issue",
+  "sentiment": "Frustrated",
+  "customer_name": "Samuel Peterson",
+  "order_number": "543210",
+  "product_number": "SOFTWARE-SUITE-PRO",
+  "audio_file": "archive/call_recording_18.wav",
+  "transcript": "I need help with the SOFTWARE-SUITE-PRO. I'm Samuel Peterson, and my order number is 543210. I've been trying to install it on my computer for the past three hours, and I keep getting error messages. I've followed all the troubleshooting steps in the help documentation, but nothing seems to work. I'm really tired of dealing with this. Can someone please assist me?"
+}

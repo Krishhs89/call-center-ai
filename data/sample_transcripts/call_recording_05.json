@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_05",
+  "category": "order_placement",
+  "call_type": "Order Placement",
+  "sentiment": "Neutral",
+  "customer_name": "Jessica Brown",
+  "order_number": "N/A",
+  "product_number": "OV-1357 & MW-8642",
+  "audio_file": "archive/call_recording_05.wav",
+  "transcript": "Hello, my name is Jessica Brown. I'd like to place an order. I want to order one OV-1357 oven and one MW-8642 microwave. Could you please tell me the total cost, including shipping, and the estimated delivery date? Also, I'd like to pay with Visa. My card number is...\""
+}

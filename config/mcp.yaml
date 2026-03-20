@@ -1,0 +1,99 @@
+# MCP (Model Control Plane) Configuration
+# Manages model routing, fallback sequences, cost controls, and observability.
+# Used by the Call Center AI Assistant to select and switch between LLMs.
+
+# ── Model Definitions ─────────────────────────────────────────────────────────
+models:
+  primary: claude                        # Default model for all tasks
+
+  fallback_sequence:                     # Ordered fallback chain on error/quota
+    - claude
+    - gpt4
+    - gemini
+
+  claude:
+    model_id: claude-sonnet-4-5-20250929
+    provider: anthropic
+    max_tokens: 4096
+    temperature: 0.7
+    cost_per_1k_input_tokens: 0.003
+    cost_per_1k_output_tokens: 0.015
+    supports_function_calling: true
+    supports_structured_output: true
+
+  gpt4:
+    model_id: gpt-4o
+    provider: openai
+    max_tokens: 4096
+    temperature: 0.7
+    cost_per_1k_input_tokens: 0.005
+    cost_per_1k_output_tokens: 0.015
+    supports_function_calling: true
+    supports_structured_output: true
+
+  gemini:
+    model_id: gemini-2.5-flash
+    provider: google
+    max_tokens: 4096
+    temperature: 0.7
+    cost_per_1k_input_tokens: 0.001
+    cost_per_1k_output_tokens: 0.002
+    supports_function_calling: true
+    supports_structured_output: true        # use json_mode for list[str] fields
+
+# ── Transcription ─────────────────────────────────────────────────────────────
+transcription:
+  primary_engine: whisper
+  whisper:
+    model_id: whisper-1
+    provider: openai
+    supported_formats: [mp3, wav, m4a, webm, ogg, flac]
+    max_file_size_mb: 100
+
+# ── Routing Rules ─────────────────────────────────────────────────────────────
+routing:
+  max_retries: 3
+  timeout_seconds: 30
+  fallback_on_error: true
+  fallback_on_quota: true
+  fallback_on_timeout: true
+
+  # Task-specific model overrides (null = use primary)
+  task_overrides:
+    summarization: null                  # use primary
+    quality_scoring: null                # use primary
+    transcription: null                  # always whisper
+
+# ── Cost Controls ─────────────────────────────────────────────────────────────
+cost_controls:
+  max_cost_per_call_usd: 0.10           # Hard stop per call
+  daily_budget_usd: 10.00               # Soft limit — triggers warning
+  alert_threshold_pct: 80               # Alert at 80% of daily budget
+  mock_mode_enabled: false              # Set MOCK_LLM=true in .env to override
+
+# ── Observability ─────────────────────────────────────────────────────────────
+observability:
+  langsmith_enabled: false              # Enable via LANGCHAIN_TRACING_V2=true in .env
+  log_level: INFO
+  trace_agent_transitions: true
+  trace_llm_calls: true
+  metrics:
+    track_latency: true
+    track_token_usage: true
+    track_error_rates: true
+
+# ── Caching ───────────────────────────────────────────────────────────────────
+caching:
+  enabled: true
+  backend: file                         # file | redis (future)
+  cache_dir: data/cache
+  ttl_hours: 168                        # 7 days
+  skip_on_mock: false                   # Still cache mock results for UI testing
+
+# ── Memory Layer ──────────────────────────────────────────────────────────────
+memory:
+  enabled: true
+  backend: file                         # file | redis | postgres (future)
+  history_file: data/call_history.jsonl
+  max_history_entries: 1000
+  retention_days: 90

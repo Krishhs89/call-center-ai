@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_11",
+  "category": "product_inquiry",
+  "call_type": "Product Inquiry",
+  "sentiment": "Neutral",
+  "customer_name": "Dr. Emily Carter",
+  "order_number": "N/A",
+  "product_number": "MED-7654",
+  "audio_file": "archive/call_recording_11.wav",
+  "transcript": "Good morning. I am Dr. Emily Carter. I am calling to inquire about the specifications of the MED-7654 medical device. I require detailed information regarding its power consumption, dimensions, and sterilization procedures. Could you please provide me with a technical data sheet?"
+}

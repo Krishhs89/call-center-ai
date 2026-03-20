@@ -1,0 +1,11 @@
+{
+  "call_id": "CALL_RECORDING_17",
+  "category": "complaint",
+  "call_type": "Complaint",
+  "sentiment": "Angry",
+  "customer_name": "Angela Ramirez",
+  "order_number": "765432",
+  "product_number": "WASHER-DRYER-COMBO",
+  "audio_file": "archive/call_recording_17.wav",
+  "transcript": "I am calling to complain about the Washer-Dryer Combo I purchased. This is Angela Ramirez, and my order number is 765432. It's making an incredibly loud noise, and it's shaking violently during the spin cycle. I'm worried it's going to break down completely. I want a technician to come out and fix this as soon as possible. This is unacceptable for a brand new appliance!\""
+}
