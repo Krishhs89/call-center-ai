@@ -28,9 +28,13 @@ archive/
 # macOS
 .DS_Store
 
-# IDE
+# IDE / Claude Code
 .vscode/
 .idea/
+.claude/
+
+# Zoom / meeting links saved as files
+https:/
 
 # Data (cache regenerated at runtime)
 data/cache/
