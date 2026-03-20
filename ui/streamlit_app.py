@@ -55,6 +55,10 @@ if "active_llm" not in st.session_state:
     st.session_state.active_llm = "claude"
 if "active_call_id" not in st.session_state:
     st.session_state.active_call_id = None
+if "audio_transcript" not in st.session_state:
+    st.session_state.audio_transcript = None
+if "audio_filename" not in st.session_state:
+    st.session_state.audio_filename = None
 
 
 def load_sample_transcript(sample_name: str) -> dict:
@@ -275,15 +279,35 @@ with tab1:
                     ta = TranscriptionAgent()
                     t_out = ta.process(call_id="audio_upload", audio_path=tmp_path)
                     transcript_input = t_out.transcript
+                    # Store in session state so we can show it in a side panel
+                    st.session_state.audio_transcript = transcript_input
+                    st.session_state.audio_filename = uploaded_file.name
                     st.success(f"✓ Transcribed {uploaded_file.name} — {len(transcript_input)} chars")
                 except Exception as e:
                     st.error(f"Transcription failed: {e}")
                     transcript_input = ""
+                    st.session_state.audio_transcript = None
+                    st.session_state.audio_filename = None
                 finally:
                     os.unlink(tmp_path)
             else:
                 transcript_input = file_content.decode("utf-8", errors="replace")
                 st.success(f"✓ Loaded: {uploaded_file.name}")
+
+    # Audio Transcript Side Panel — shown only when an audio file was just transcribed
+    if st.session_state.audio_transcript:
+        st.markdown("---")
+        st.subheader(f"🎙️ Whisper Transcript — `{st.session_state.audio_filename}`")
+        st.caption("This is the raw text returned by OpenAI Whisper. It has been copied to the text area above and will be processed when you click **Process Call**.")
+        with st.expander("📝 View full transcript", expanded=True):
+            st.text_area(
+                "Transcribed text:",
+                value=st.session_state.audio_transcript,
+                height=200,
+                disabled=True,
+                key="audio_transcript_display",
+            )
+        st.markdown("---")
 
     # Metadata
     st.subheader("Call Metadata (Optional)")
@@ -323,9 +347,12 @@ with tab1:
                     st.session_state.benchmark_result = None  # clear stale benchmark
                     st.session_state.active_call_id = st.session_state.call_result.call_id
                     st.session_state.active_llm = llm_choice
+                    # Clear audio transcript since this came from cache
+                    st.session_state.audio_transcript = None
+                    st.session_state.audio_filename = None
                     st.success(
-                        f"⚡ Loaded from cache (no API call made) — "
-                        f"Call {st.session_state.call_result.call_id}"
+                        f"⚡ Loaded from cache — no LLM API call made! "
+                        f"Call {st.session_state.call_result.call_id} · LLM: {llm_choice}"
                     )
                 else:
                     with st.spinner("Processing call..."):
@@ -830,8 +857,8 @@ with tab5:
     # ── SECTION 1: Graph Diagram + Side Explanation ───────────────────────────
     st.subheader("📊 Graph Diagram")
     st.caption(
-        "✅ **Live** — generated at runtime from the compiled LangGraph object. "
-        "Solid arrows = fixed edges. Dashed arrows = conditional routing."
+        "📌 **LangGraph workflow** — matches the compiled graph in `workflow/langgraph_flow.py`. "
+        "Solid arrows = fixed edges. Dashed orange arrows = conditional routing."
     )
     diag_col, exp_col = st.columns([1.2, 1], gap="large")
     with exp_col:
@@ -870,115 +897,36 @@ If transcription fails the handler checks what is still missing and skips ahead 
         """)
 
     with diag_col:
-        try:
-            import re
-            wf = create_workflow(llm_name=llm_choice)
-            raw = wf.get_graph().draw_mermaid()
+        # Static graphviz DOT diagram — always renders on Streamlit Cloud without extra dependencies
+        _dot_source = """
+digraph LangGraph {
+    rankdir=TD
+    bgcolor=white
+    fontname=Helvetica
+    node [fontname=Helvetica fontsize=12]
 
-            # Clean LangGraph mermaid output
-            clean = re.sub(r"^---.*?---\s*", "", raw, flags=re.DOTALL)
-            clean = re.sub(r"\(\[<p>__start__</p>\]", "([START]", clean)
-            clean = re.sub(r"\(\[<p>__end__</p>\]", "([END]", clean)
-            clean = re.sub(r"<[^>]+>", "", clean)
+    __start__ [label="START" shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
+    intake     [label="intake\n(IntakeAgent)"        shape=box  style=filled fillcolor="#bbdefb" color="#1976d2"]
+    transcription [label="transcription\n(TranscriptionAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    error_handler [label="error_handler\n(RoutingAgent)"       shape=box style=filled fillcolor="#ffe0b2" color="#f57c00"]
+    summarization [label="summarization\n(SummarizationAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    quality_score [label="quality_score\n(QualityScoreAgent)"  shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    end_node   [label="end"             shape=box  style=filled fillcolor="#c8e6c9" color="#4caf50"]
+    __end__    [label="END"             shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
 
-            rendered = False
-
-            # Attempt 1: graphviz (local, best quality)
-            try:
-                import graphviz as gv
-                nodes, edges = [], []
-                for line in clean.splitlines():
-                    line = line.strip().rstrip(";")
-                    m = re.match(r'^(\w+)\(\[(.+?)\]\)', line)
-                    if m:
-                        nodes.append((m.group(1), m.group(2), "rounded"))
-                        continue
-                    m = re.match(r'^(\w+)\((.+?)\)', line)
-                    if m:
-                        nodes.append((m.group(1), m.group(2), "box"))
-                        continue
-                    m = re.match(r'^(\w+)\s*(-->|-\.->)\s*(\w+)', line)
-                    if m:
-                        edges.append((m.group(1), m.group(3), m.group(2) == "-.->"))
-
-                dot = gv.Digraph(graph_attr={"rankdir": "TD", "bgcolor": "white", "fontname": "Helvetica"})
-                dot.attr("node", fontname="Helvetica", fontsize="12")
-                node_colors = {
-                    "__start__": ("#e8f5e9", "black"), "intake": ("#e3f2fd", "black"),
-                    "transcription": ("#e3f2fd", "black"), "summarization": ("#e3f2fd", "black"),
-                    "quality_score": ("#e3f2fd", "black"), "error_handler": ("#fff3e0", "black"),
-                    "end": ("#e8f5e9", "black"), "__end__": ("#e8f5e9", "black"),
-                }
-                for nid, label, shape in nodes:
-                    fill, font = node_colors.get(nid, ("#f2f0ff", "black"))
-                    s = "oval" if shape == "rounded" else "box"
-                    dot.node(nid, label=label, shape=s, style="filled",
-                             fillcolor=fill, fontcolor=font)
-                for src, dst, dashed in edges:
-                    dot.edge(src, dst, style="dashed" if dashed else "solid",
-                             color="#666666" if dashed else "#333333")
-                st.graphviz_chart(dot.source)
-                rendered = True
-            except Exception:
-                pass
-
-            # Attempt 2: matplotlib fallback
-            if not rendered:
-                try:
-                    import matplotlib.pyplot as plt
-                    nodes_m, edges_m = [], []
-                    for line in clean.splitlines():
-                        line = line.strip().rstrip(";")
-                        m = re.match(r'^(\w+)[\(\[]', line)
-                        if m and "-->" not in line and "-.->" not in line:
-                            nid = m.group(1)
-                            label = re.sub(r'^(\w+)[\(\[]+(.+?)[\)\]]+$', r'\2', line)
-                            nodes_m.append((nid, label))
-                        m = re.match(r'^(\w+)\s*(-->|-\.->)\s*(\w+)', line)
-                        if m:
-                            edges_m.append((m.group(1), m.group(3), m.group(2) == "-.->"))
-                    pos = {
-                        "__start__": (0, 6), "intake": (0, 5), "transcription": (0, 4),
-                        "error_handler": (-1.8, 3), "summarization": (0, 3),
-                        "quality_score": (0, 2), "end": (0, 1), "__end__": (0, 0),
-                    }
-                    colors = {
-                        "__start__": "#c8e6c9", "__end__": "#c8e6c9",
-                        "intake": "#bbdefb", "transcription": "#bbdefb",
-                        "summarization": "#bbdefb", "quality_score": "#bbdefb",
-                        "error_handler": "#ffe0b2", "end": "#c8e6c9",
-                    }
-                    fig, ax = plt.subplots(figsize=(7, 9))
-                    ax.set_xlim(-3, 2); ax.set_ylim(-0.5, 6.8)
-                    ax.axis("off")
-                    ax.set_facecolor("white"); fig.patch.set_facecolor("white")
-                    for src, dst, dashed in edges_m:
-                        if src in pos and dst in pos:
-                            x0, y0 = pos[src]; x1, y1 = pos[dst]
-                            ax.annotate("", xy=(x1, y1 + 0.3), xytext=(x0, y0 - 0.3),
-                                        arrowprops=dict(arrowstyle="->", lw=1.2,
-                                                        linestyle="--" if dashed else "-",
-                                                        color="#888888" if dashed else "#333333"))
-                    for nid, lbl in nodes_m:
-                        if nid not in pos:
-                            continue
-                        x, y = pos[nid]
-                        ax.text(x, y, lbl, ha="center", va="center", fontsize=10,
-                                fontweight="bold",
-                                bbox=dict(boxstyle="round,pad=0.4", facecolor=colors.get(nid, "#e8eaf6"),
-                                          edgecolor="#555555", linewidth=1.5))
-                    ax.set_title("LangGraph Workflow", fontsize=13, fontweight="bold", pad=10)
-                    st.pyplot(fig)
-                    plt.close(fig)
-                    rendered = True
-                except Exception as e2:
-                    st.warning(f"Could not render graph: {e2}")
-
-            with st.expander("View raw Mermaid source"):
-                st.code(clean, language="text")
-
-        except Exception as e:
-            st.warning(f"Could not build graph: {e}")
+    __start__     -> intake          [color="#333333"]
+    intake        -> transcription   [color="#333333"]
+    transcription -> summarization   [color="#333333" label="errors == []"]
+    transcription -> error_handler   [color="#f57c00" style=dashed label="errors != []"]
+    error_handler -> summarization   [color="#f57c00" style=dashed label="summary missing"]
+    error_handler -> quality_score   [color="#f57c00" style=dashed label="qa missing"]
+    error_handler -> end_node        [color="#f57c00" style=dashed label="both present"]
+    summarization -> quality_score   [color="#333333"]
+    quality_score -> end_node        [color="#333333"]
+    end_node      -> __end__         [color="#333333"]
+}
+"""
+        st.graphviz_chart(_dot_source)
 
     st.markdown("---")
 
