@@ -65,7 +65,7 @@ Resources:
   AppSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Call Center AI — allow SSH and Streamlit
+      GroupDescription: Call Center AI - allow SSH and Streamlit
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 22
@@ -76,7 +76,7 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-          Description: HTTP (nginx proxy — future)
+          Description: HTTP nginx proxy future
         - IpProtocol: tcp
           FromPort: 8501
           ToPort: 8501
