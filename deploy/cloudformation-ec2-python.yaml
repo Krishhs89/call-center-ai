@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
-  Call Center AI — EC2 + Python (no Docker) deployment.
-  Downloads the application bundle from S3, installs Python 3.11 + dependencies,
-  and runs Streamlit as a systemd service. API keys are pulled from SSM.
+  Call Center AI — EC2 + Python deployment via GitHub.
+  Clones the repo, installs Python 3.11 + dependencies,
+  and runs Streamlit as a systemd service. API keys from SSM.
 
 # ── Parameters ────────────────────────────────────────────────────────────────
 Parameters:
@@ -15,14 +15,15 @@ Parameters:
     Type: AWS::EC2::KeyPair::KeyName
     Description: EC2 Key Pair for SSH access
 
-  S3BucketName:
+  GitHubRepo:
     Type: String
-    Description: S3 bucket that holds the call_center_ai.zip code bundle
+    Default: https://github.com/Krishhs89/call-center-ai.git
+    Description: Public GitHub repository URL
 
-  S3ObjectKey:
+  GitHubBranch:
     Type: String
-    Default: call_center_ai.zip
-    Description: Key (path) of the zip file inside the S3 bucket
+    Default: master
+    Description: Branch to deploy
 
   SSMPrefix:
     Type: String
@@ -50,14 +51,8 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMReadOnlyAccess
-      Policies:
-        - PolicyName: S3ReadBundle
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: [s3:GetObject, s3:HeadObject]
-                Resource: !Sub "arn:aws:s3:::${S3BucketName}/${S3ObjectKey}"
+      Tags:
+        - {Key: Project, Value: CallCenterAI}
 
   AppInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -111,13 +106,10 @@ Resources:
 
           echo "=== [1/6] System update ==="
           dnf update -y
-          dnf install -y python3.11 python3.11-pip python3.11-devel gcc unzip aws-cli
+          dnf install -y python3.11 python3.11-pip git
 
-          echo "=== [2/6] Download application bundle from S3 ==="
-          mkdir -p "$APP_DIR"
-          aws s3 cp "s3://${S3BucketName}/${S3ObjectKey}" /tmp/app.zip --region "$REGION"
-          unzip -o /tmp/app.zip -d "$APP_DIR"
-          rm /tmp/app.zip
+          echo "=== [2/6] Clone repo from GitHub ==="
+          git clone --branch "${GitHubBranch}" "${GitHubRepo}" "$APP_DIR"
 
           echo "=== [3/6] Install Python dependencies ==="
           cd "$APP_DIR"
@@ -150,9 +142,8 @@ Resources:
           EOF
 
           echo "=== [6/6] Create and start systemd service ==="
-          STREAMLIT_BIN=$(python3.11 -m site --user-base 2>/dev/null || echo "")/bin/streamlit
-          STREAMLIT_BIN=$(which streamlit 2>/dev/null || python3.11 -c "import streamlit; print(streamlit.__file__)" 2>/dev/null | xargs dirname)/streamlit
-          # Fallback: use python -m streamlit
+          chown -R ec2-user:ec2-user "$APP_DIR"
+
           cat > /etc/systemd/system/call-center-ai.service <<UNIT
           [Unit]
           Description=Call Center AI Streamlit App
@@ -175,9 +166,6 @@ Resources:
           [Install]
           WantedBy=multi-user.target
           UNIT
-
-          # Fix ownership
-          chown -R ec2-user:ec2-user "$APP_DIR"
 
           systemctl daemon-reload
           systemctl enable call-center-ai
@@ -202,6 +190,10 @@ Outputs:
 
   PublicIP:
     Value: !Ref AppEIP
+
+  GitHubRepo:
+    Description: Source code repository
+    Value: !Ref GitHubRepo
 
   SSHCommand:
     Value: !Sub "ssh -i <your-key>.pem ec2-user@${AppEIP}"
