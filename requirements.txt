@@ -18,9 +18,6 @@ python-dotenv>=1.0.0
 # UI Framework
 streamlit>=1.28.0
 
-# Optional: Evaluation metrics
-ragas>=0.0.80
-
 # Utilities
 tiktoken>=0.5.0
 requests>=2.31.0

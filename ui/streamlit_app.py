@@ -3,12 +3,19 @@ Streamlit UI for Call Center AI Assistant.
 Provides tabs for upload, results, QA scoring, and multi-LLM benchmarking.
 """
 
+import sys
 import streamlit as st
 import json
 import logging
 import os
 from pathlib import Path
 from typing import Optional
+
+# Ensure the repo root is on sys.path so all modules resolve correctly
+# whether running locally (from repo root) or on Streamlit Cloud (from ui/)
+_repo_root = Path(__file__).resolve().parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
 
 from agents.intake_agent import IntakeAgent
 from workflow.langgraph_flow import create_workflow, run_workflow
