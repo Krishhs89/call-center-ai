@@ -186,6 +186,43 @@ with st.sidebar:
     else:
         st.info("No cached results yet")
 
+    # Sample Audio Files
+    _audio_dir = Path(__file__).parent.parent / "data" / "sample_audio"
+    _audio_files = sorted(_audio_dir.glob("*.wav")) if _audio_dir.exists() else []
+    if _audio_files:
+        st.subheader("🎙️ Sample Audio (WAV)")
+        st.caption("Click to load a pre-built audio call. Whisper will transcribe it, then the full V3 pipeline runs.")
+        _AUDIO_LABELS = {
+            "sample_audio_billing.wav":     "💳 Billing Dispute",
+            "sample_audio_escalation.wav":  "🚨 Escalation Request",
+            "sample_audio_tech_support.wav":"🔧 Tech Support",
+            "sample_audio_fraud.wav":       "🔒 Fraud Report",
+            "sample_audio_complaint.wav":   "😡 Complaint",
+            "sample_audio_account.wav":     "👤 Account Reset",
+        }
+        for _wav in _audio_files:
+            _label = _AUDIO_LABELS.get(_wav.name, _wav.stem.replace("_", " ").title())
+            if st.button(f"Load {_label}", key=f"wav_{_wav.stem}"):
+                with st.spinner(f"🎙️ Transcribing {_wav.name} via Whisper..."):
+                    try:
+                        from agents.transcription_agent import TranscriptionAgent
+                        _ta = TranscriptionAgent()
+                        _t_out = _ta.process(call_id="audio_sample", audio_path=str(_wav))
+                        st.session_state.transcript_text = _t_out.transcript
+                        st.session_state.audio_transcript = _t_out.transcript
+                        st.session_state.audio_filename = _wav.name
+                        st.session_state.sample_metadata = {
+                            "call_id": f"audio_{_wav.stem}",
+                            "category": _wav.stem.replace("sample_audio_", "").replace("_", " "),
+                        }
+                        st.session_state.call_result = None
+                        st.session_state.benchmark_result = None
+                        st.session_state.active_call_id = None
+                        st.success(f"✓ Transcribed — {len(_t_out.transcript)} chars")
+                        st.rerun()
+                    except Exception as _e:
+                        st.error(f"Transcription failed: {_e}")
+
     # Vector DB (RAG)
     st.subheader("🔍 Vector DB (RAG)")
     vdb = get_vector_store_stats()
