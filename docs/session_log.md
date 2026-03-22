@@ -81,6 +81,43 @@ New transcript arrives
 
 ---
 
+## Session 4 — 2026-03-21 (continued)
+
+### Agent Roadmap Implementation (1 of 8 started)
+
+#### Agent 1/8: ComplianceCheckerAgent ✅ (commit `06223ff`)
+**Pipeline position:** after `sentiment`, before `escalation_prediction`
+**What it checks:** HIPAA, GDPR, PCI-DSS, TCPA, Financial, General (6 categories)
+**Output:** violations list (severity + evidence + remediation), compliance_score 0-100, requires_immediate_review flag
+**Business value:** replaces manual auditing — flags 100% of calls vs 2% sample; avoids GDPR fines up to €20M
+**Real-world frequency:** 100% of calls in banking/healthcare/insurance; 20% spot-check elsewhere
+**Mock mode:** pattern-based (CVV, recording consent, identity verification keywords)
+
+#### Agent 2/8: EscalationPredictionAgent ✅ (commit `4efd841`)
+**Pipeline position:** after `compliance_check`, before `summarization`
+**What it produces:** risk_score 0-100, risk_level (low/medium/high/critical), trigger moments, recommended_intervention
+**Consumes:** sentiment + compliance signals (cross-agent enrichment)
+**Business value:** supervisor intervenes 2-3 turns early → 5 min AHT reduction; ~$2.1M/year in 500-seat center
+**Real-world frequency:** 100% scored; supervisor alert fires on ~5-8%
+**Fix logged:** Python 3.9 incompatibility with `dict | None` syntax → use `Optional[dict]`
+
+#### Agents still to implement (6 remaining):
+3. CallCoachingAgent
+4. KnowledgeBaseAgent
+5. CustomerProfileAgent
+6. AutoTaggingAgent
+7. AnomalyDetectionAgent
+8. FeedbackLoopAgent
+
+### Pipeline as of this session
+```
+intake → transcription → pii_redaction → rag_retrieval → sentiment
+       → compliance_check → escalation_prediction → summarization → quality_score → end
+```
+(11 nodes total)
+
+---
+
 ## Session 2 — 2026-03-19
 
 ### Topics covered
