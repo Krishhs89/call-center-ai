@@ -583,22 +583,217 @@ with tab2:
                         st.markdown(f"**Evidence:** {v.get('transcript_evidence', 'N/A')}")
                         st.markdown(f"**Remediation:** {v.get('remediation', 'N/A')}")
 
-        # ── V2: PII Redaction Summary ─────────────────────────────────────────
+        # ── V3: Customer Profile ──────────────────────────────────────────────
+        customer_profile = st.session_state.v2_extras.get("customer_profile")
+        if customer_profile and not customer_profile.get("is_first_call"):
+            total_calls = customer_profile.get("total_calls_in_history", 0)
+            risk_tier = customer_profile.get("risk_tier", "regular")
+            tier_icon = {"vip": "⭐", "at_risk": "⚠️", "churning": "🚨", "regular": "👤"}.get(risk_tier, "👤")
+            tier_color = {"vip": "success", "at_risk": "warning", "churning": "error", "regular": "info"}.get(risk_tier, "info")
+
+            if risk_tier == "churning":
+                st.error(f"🚨 **CHURN RISK** — {customer_profile.get('profile_summary', '')}")
+            elif risk_tier == "at_risk":
+                st.warning(f"⚠️ **At-Risk Customer** — {customer_profile.get('profile_summary', '')}")
+
+            with st.expander(f"{tier_icon} Customer Profile — {risk_tier.upper().replace('_', ' ')} ({total_calls} prior call(s))", expanded=risk_tier in ("at_risk", "churning")):
+                cp1, cp2, cp3, cp4 = st.columns(4)
+                with cp1:
+                    st.metric("Prior Calls", total_calls)
+                with cp2:
+                    avg_qa = customer_profile.get("avg_qa_score", 0.0)
+                    st.metric("Avg QA Score", f"{avg_qa:.0f}/100" if avg_qa else "N/A")
+                with cp3:
+                    st.metric("Escalations", customer_profile.get("escalation_count", 0))
+                with cp4:
+                    trend = customer_profile.get("sentiment_trend", "unknown")
+                    trend_icon = {"improving": "📈", "stable": "➡️", "deteriorating": "📉"}.get(trend, "❓")
+                    st.metric("Sentiment Trend", f"{trend_icon} {trend.title()}")
+
+                top_issues = customer_profile.get("top_issues", [])
+                if top_issues:
+                    st.markdown("**Top Issues:**")
+                    for issue in top_issues:
+                        st.caption(f"  • {issue['category']} ({issue['count']} calls)")
+
+                st.caption(customer_profile.get("profile_summary", ""))
+
+        elif customer_profile and customer_profile.get("is_first_call"):
+            st.info("👤 **New Customer** — No prior call history found")
+
+        # ── V3: Auto Tags ─────────────────────────────────────────────────────
+        tags = st.session_state.v2_extras.get("tags")
+        if tags and tags.get("primary_category"):
+            with st.expander(f"🏷️ Auto Tags — {tags.get('primary_category', '').replace('_', ' ').title()}", expanded=False):
+                t1, t2, t3 = st.columns(3)
+                with t1:
+                    st.markdown(f"**Primary Category**\n`{tags.get('primary_category', 'N/A')}`")
+                    st.markdown(f"**Sub Category**\n`{tags.get('sub_category', 'N/A')}`")
+                with t2:
+                    intents = tags.get("intent_tags", [])
+                    if intents:
+                        st.markdown("**Intent Tags**")
+                        st.markdown(" ".join(f"`{i}`" for i in intents))
+                    routing = tags.get("routing_tags", [])
+                    if routing:
+                        st.markdown("**Routing**")
+                        st.markdown(" ".join(f"`{r}`" for r in routing))
+                with t3:
+                    sent_tags = tags.get("sentiment_tags", [])
+                    if sent_tags:
+                        st.markdown("**Sentiment Tags**")
+                        st.markdown(" ".join(f"`{s}`" for s in sent_tags))
+                    products = tags.get("product_tags", [])
+                    if products:
+                        st.markdown("**Products**")
+                        st.markdown(" ".join(f"`{p}`" for p in products))
+                conf = tags.get("confidence_score", 0.0)
+                st.caption(f"Confidence: {conf:.0%} — {tags.get('tagging_rationale', '')}")
+
+        # ── V3: Knowledge Base ────────────────────────────────────────────────
+        kb_analysis = st.session_state.v2_extras.get("kb_analysis")
+        if kb_analysis and kb_analysis.get("relevant_articles"):
+            sop_score = kb_analysis.get("sop_compliance_score", 100.0)
+            sop_icon = "🟢" if sop_score >= 90 else "🟡" if sop_score >= 70 else "🔴"
+            with st.expander(f"📚 Knowledge Base — SOP Compliance {sop_icon} {sop_score:.0f}%", expanded=sop_score < 80):
+                st.metric("SOP Compliance Score", f"{sop_score:.0f}%")
+
+                articles = kb_analysis.get("relevant_articles", [])
+                for art in articles:
+                    comp = art.get("was_agent_compliant", "yes")
+                    comp_icon = {"yes": "✅", "no": "❌", "partial": "⚠️", "not_applicable": "⚫"}.get(comp, "⚫")
+                    with st.expander(f"{comp_icon} [{art.get('article_id')}] {art.get('title', '')} — {comp.upper()}"):
+                        if art.get("agent_deviation"):
+                            st.error(f"**Deviation:** {art['agent_deviation']}")
+                        for kp in art.get("key_points", []):
+                            st.caption(f"• {kp}")
+
+                missed = kb_analysis.get("missed_knowledge_opportunities", [])
+                if missed and missed != ["No major missed KB opportunities detected"]:
+                    st.warning("**Missed KB opportunities:**")
+                    for m in missed:
+                        st.caption(f"→ {m}")
+
+                training = kb_analysis.get("recommended_training_articles", [])
+                if training:
+                    st.info(f"**Recommended training:** {', '.join(training)}")
+
+                st.caption(kb_analysis.get("kb_summary", ""))
+
+        # ── V3: Call Coaching ─────────────────────────────────────────────────
+        coaching = st.session_state.v2_extras.get("coaching")
+        if coaching and coaching.get("coaching_tips") is not None:
+            priority = coaching.get("overall_coaching_priority", "low")
+            priority_icon = {"immediate": "🚨", "high": "🔴", "medium": "🟡", "low": "🟢"}.get(priority, "⚪")
+            with st.expander(f"🎓 Agent Coaching — {priority_icon} {priority.upper()} Priority", expanded=priority in ("immediate", "high")):
+                strengths = coaching.get("agent_strengths", [])
+                if strengths:
+                    st.markdown("**Agent Strengths:**")
+                    for s in strengths:
+                        st.success(f"✓ {s}")
+
+                tips = coaching.get("coaching_tips", [])
+                if tips:
+                    st.markdown("**Coaching Tips (prioritised):**")
+                    for tip in tips:
+                        tip_icon = {"immediate": "🚨", "high": "🔴", "medium": "🟡", "low": "🟢"}.get(tip.get("priority", ""), "⚪")
+                        with st.expander(f"{tip_icon} [{tip.get('dimension', '').replace('_', ' ').title()}] Score: {tip.get('current_score', 0):.1f}/10 — {tip.get('priority', '').upper()}"):
+                            st.markdown(f"**What happened:** {tip.get('what_happened', 'N/A')}")
+                            st.markdown(f"**What to do instead:** {tip.get('what_to_do_instead', 'N/A')}")
+                            st.info(f"**Example script:** *\"{tip.get('example_script', '')}\"*")
+
+                st.markdown(f"**Next call focus:** {coaching.get('next_call_focus', 'N/A')}")
+                st.caption(f"**Estimated improvement:** {coaching.get('estimated_improvement', 'N/A')}")
+                st.caption(coaching.get("coaching_summary", ""))
+
+        # ── V3: Anomaly Detection ─────────────────────────────────────────────
+        anomaly = st.session_state.v2_extras.get("anomaly")
+        if anomaly:
+            anomaly_score = anomaly.get("anomaly_score", 0.0)
+            anomaly_level = anomaly.get("anomaly_level", "normal")
+            requires_review = anomaly.get("requires_review", False)
+            level_icon = {"normal": "✅", "medium": "🟡", "high": "🔴", "critical": "🚨"}.get(anomaly_level, "⚪")
+
+            if requires_review:
+                st.error(f"🚨 **Anomaly Detected — Queued for QA Review** (score: {anomaly_score:.0f}/100)")
+
+            with st.expander(f"{level_icon} Anomaly Detection — {anomaly_level.upper()} ({anomaly_score:.0f}/100)", expanded=requires_review):
+                a1, a2 = st.columns(2)
+                with a1:
+                    st.metric("Anomaly Score", f"{anomaly_score:.0f}/100")
+                with a2:
+                    st.metric("QA Review Required", "YES" if requires_review else "No")
+
+                flags = anomaly.get("flags", [])
+                if flags:
+                    st.markdown("**Anomaly Flags:**")
+                    for flag in flags:
+                        flag_icon = {"critical": "🚨", "high": "🔴", "medium": "🟡", "low": "🟢"}.get(flag.get("severity", ""), "⚪")
+                        st.caption(f"{flag_icon} [{flag.get('type', '').replace('_', ' ').upper()}] {flag.get('detail', '')}")
+                else:
+                    st.success("No anomalies detected — call within normal parameters")
+
+                stat_ctx = anomaly.get("statistical_context", {})
+                if stat_ctx and stat_ctx.get("population_size", 0) >= 5:
+                    st.caption(
+                        f"Statistical context: mean={stat_ctx.get('population_mean', 'N/A')}, "
+                        f"σ={stat_ctx.get('population_stdev', 'N/A')}, "
+                        f"z={stat_ctx.get('z_score', 'N/A')} "
+                        f"(n={stat_ctx.get('population_size', 0)} calls)"
+                    )
+
+        # ── V3: Feedback Loop ─────────────────────────────────────────────────
+        feedback_loop = st.session_state.v2_extras.get("feedback_loop")
+        if feedback_loop and feedback_loop.get("improvement_status") not in (None, "insufficient_history"):
+            status = feedback_loop.get("improvement_status", "stable")
+            delta = feedback_loop.get("score_delta", 0.0)
+            status_icon = {
+                "significantly_improved": "📈", "improved": "↗️", "stable": "➡️",
+                "declined": "↘️", "regressed": "📉"
+            }.get(status, "➡️")
+
+            with st.expander(f"{status_icon} Feedback Loop — {status.replace('_', ' ').title()} ({delta:+.1f} pts)", expanded=status == "regressed"):
+                fl1, fl2, fl3 = st.columns(3)
+                with fl1:
+                    st.metric("Score Delta", f"{delta:+.1f}")
+                with fl2:
+                    st.metric("Prior Avg Score", f"{feedback_loop.get('prior_avg_score', 0):.0f}/100")
+                with fl3:
+                    st.metric("Coaching Adoption", f"{feedback_loop.get('coaching_adoption_rate', 0):.0f}%")
+
+                improved = feedback_loop.get("improved_dimensions", [])
+                regressed = feedback_loop.get("regressed_dimensions", [])
+                if improved:
+                    st.success(f"**Improved dimensions:** {', '.join(d['dimension'] for d in improved)}")
+                if regressed:
+                    st.warning(f"**Regressed dimensions:** {', '.join(d['dimension'] for d in regressed)}")
+
+                st.caption(feedback_loop.get("feedback_summary", ""))
+
+        elif feedback_loop and feedback_loop.get("improvement_status") == "insufficient_history":
+            with st.expander("🔄 Feedback Loop — Building baseline...", expanded=False):
+                st.info(feedback_loop.get("feedback_summary", "Processing more calls to build the feedback baseline."))
+
+        # ── V2/V3: Processing Details ─────────────────────────────────────────
         pii_summary = st.session_state.v2_extras.get("pii_summary", {})
         rag_ctx = st.session_state.v2_extras.get("rag_context", "")
-        if pii_summary or rag_ctx:
-            with st.expander("🔒 V2 Processing Details", expanded=False):
-                if pii_summary:
-                    total_pii = sum(pii_summary.values())
-                    st.success(f"🔒 PII Redaction: {total_pii} item(s) masked before LLM processing")
-                    for field, count in pii_summary.items():
-                        st.caption(f"  • {field.replace('_', ' ').title()}: {count}")
-                else:
-                    st.info("🔒 PII Redaction: No PII detected in transcript")
-                if rag_ctx:
-                    st.success(f"🔍 RAG: Similar past calls retrieved ({len(rag_ctx)} chars of context injected)")
-                else:
-                    st.info("🔍 RAG: No similar past calls yet (vector store building up)")
+        kb_ctx = st.session_state.v2_extras.get("kb_context", "")
+        with st.expander("🔒 Processing Details (PII / RAG / KB)", expanded=False):
+            if pii_summary:
+                total_pii = sum(pii_summary.values())
+                st.success(f"🔒 PII Redaction: {total_pii} item(s) masked before LLM processing")
+                for field, count in pii_summary.items():
+                    st.caption(f"  • {field.replace('_', ' ').title()}: {count}")
+            else:
+                st.info("🔒 PII Redaction: No PII detected in transcript")
+            if rag_ctx:
+                st.success(f"🔍 Call-History RAG: {len(rag_ctx)} chars of context from similar past calls")
+            else:
+                st.info("🔍 Call-History RAG: No similar past calls yet (vector store building up)")
+            if kb_ctx:
+                st.success(f"📚 Knowledge Base: {len(kb_ctx)} chars of KB articles injected into prompts")
+            else:
+                st.info("📚 Knowledge Base: No KB articles matched for this call")
 
         # Errors
         if result.errors:
@@ -1046,33 +1241,47 @@ digraph LangGraph {
     rankdir=TD
     bgcolor=white
     fontname=Helvetica
-    node [fontname=Helvetica fontsize=11]
+    node [fontname=Helvetica fontsize=10]
 
-    __start__     [label="START" shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
-    intake        [label="intake\n(IntakeAgent)"               shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
-    transcription [label="transcription\n(TranscriptionAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
-    error_handler [label="error_handler\n(RoutingAgent)"       shape=box style=filled fillcolor="#ffe0b2" color="#f57c00"]
-    pii_redaction [label="pii_redaction\n(PIIRedactionAgent)"  shape=box style=filled fillcolor="#fce4ec" color="#c62828"]
-    rag_retrieval [label="rag_retrieval\n(RAGAgent + ChromaDB)" shape=box style=filled fillcolor="#e1bee7" color="#7b1fa2"]
-    sentiment     [label="sentiment\n(SentimentAgent)"          shape=box style=filled fillcolor="#fff9c4" color="#f9a825"]
-    summarization [label="summarization\n(SummarizationAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
-    quality_score [label="quality_score\n(QualityScoreAgent)"  shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
-    end_node      [label="end\n(store ChromaDB embedding)"     shape=box style=filled fillcolor="#c8e6c9" color="#4caf50"]
-    __end__       [label="END" shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
+    __start__          [label="START" shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
+    intake             [label="intake\n(IntakeAgent)"               shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    customer_profile   [label="customer_profile\n(CustomerProfileAgent)" shape=box style=filled fillcolor="#e8f5e9" color="#2e7d32"]
+    transcription      [label="transcription\n(TranscriptionAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    error_handler      [label="error_handler\n(recovery)"           shape=box style=filled fillcolor="#ffe0b2" color="#f57c00"]
+    pii_redaction      [label="pii_redaction\n(PIIRedactionAgent)"  shape=box style=filled fillcolor="#fce4ec" color="#c62828"]
+    rag_retrieval      [label="rag_retrieval\n(RAGAgent + ChromaDB)" shape=box style=filled fillcolor="#e1bee7" color="#7b1fa2"]
+    kb_retrieval       [label="kb_retrieval\n(KnowledgeBaseAgent)"  shape=box style=filled fillcolor="#e8eaf6" color="#3949ab"]
+    sentiment          [label="sentiment\n(SentimentAgent)"          shape=box style=filled fillcolor="#fff9c4" color="#f9a825"]
+    compliance_check   [label="compliance_check\n(ComplianceAgent)" shape=box style=filled fillcolor="#fce4ec" color="#c62828"]
+    escalation_prediction [label="escalation_pred\n(EscalationAgent)" shape=box style=filled fillcolor="#ffe0b2" color="#e65100"]
+    summarization      [label="summarization\n(SummarizationAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    auto_tagging       [label="auto_tagging\n(AutoTaggingAgent)"    shape=box style=filled fillcolor="#e8f5e9" color="#2e7d32"]
+    quality_score      [label="quality_score\n(QualityScoreAgent)"  shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    call_coaching      [label="call_coaching\n(CallCoachingAgent)"  shape=box style=filled fillcolor="#e8f5e9" color="#2e7d32"]
+    anomaly_detection  [label="anomaly_detect\n(AnomalyAgent)"      shape=box style=filled fillcolor="#fce4ec" color="#c62828"]
+    end_node           [label="end\n(+ FeedbackLoop)"               shape=box style=filled fillcolor="#c8e6c9" color="#4caf50"]
+    __end__            [label="END" shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
 
-    __start__     -> intake          [color="#333333"]
-    intake        -> transcription   [color="#333333"]
-    transcription -> pii_redaction   [color="#333333" label="errors == []"]
-    transcription -> error_handler   [color="#f57c00" style=dashed label="errors != []"]
-    pii_redaction -> rag_retrieval   [color="#c62828" label="redacted transcript"]
-    rag_retrieval -> sentiment       [color="#7b1fa2" label="+ RAG context"]
-    sentiment     -> summarization   [color="#f9a825" label="+ sentiment data"]
-    error_handler -> summarization   [color="#f57c00" style=dashed label="summary missing"]
-    error_handler -> quality_score   [color="#f57c00" style=dashed label="qa missing"]
-    error_handler -> end_node        [color="#f57c00" style=dashed label="both present"]
-    summarization -> quality_score   [color="#333333"]
-    quality_score -> end_node        [color="#333333"]
-    end_node      -> __end__         [color="#333333"]
+    __start__           -> intake               [color="#333333"]
+    intake              -> customer_profile     [color="#2e7d32"]
+    customer_profile    -> transcription        [color="#333333"]
+    transcription       -> pii_redaction        [color="#333333" label="no errors"]
+    transcription       -> error_handler        [color="#f57c00" style=dashed label="errors"]
+    pii_redaction       -> rag_retrieval        [color="#c62828"]
+    rag_retrieval       -> kb_retrieval         [color="#7b1fa2"]
+    kb_retrieval        -> sentiment            [color="#3949ab"]
+    sentiment           -> compliance_check     [color="#f9a825"]
+    compliance_check    -> escalation_prediction [color="#c62828"]
+    escalation_prediction -> summarization      [color="#e65100"]
+    summarization       -> auto_tagging         [color="#333333"]
+    auto_tagging        -> quality_score        [color="#2e7d32"]
+    quality_score       -> call_coaching        [color="#333333"]
+    call_coaching       -> anomaly_detection    [color="#2e7d32"]
+    anomaly_detection   -> end_node             [color="#c62828"]
+    error_handler       -> summarization        [color="#f57c00" style=dashed]
+    error_handler       -> quality_score        [color="#f57c00" style=dashed]
+    error_handler       -> end_node             [color="#f57c00" style=dashed]
+    end_node            -> __end__              [color="#333333"]
 }
 """
         st.graphviz_chart(_dot_source)
@@ -1085,38 +1294,49 @@ digraph LangGraph {
 
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("**Nodes (Agents) — Version 2**")
+        st.markdown("**Nodes (Agents) — Version 3 (17 nodes)**")
         st.markdown("""
-| Node | Agent | Role |
-|------|-------|------|
-| `intake` | IntakeAgent | Validates input, generates call_id |
-| `transcription` | TranscriptionAgent | Normalizes speaker labels / runs Whisper |
-| `pii_redaction` | PIIRedactionAgent | Masks PII before any LLM sees the text |
-| `rag_retrieval` | RAGRetrievalAgent | Queries ChromaDB for similar past calls |
-| `sentiment` | SentimentAgent | Per-turn sentiment + escalation risk |
-| `summarization` | SummarizationAgent | LLM → summary + key points (+ RAG) |
-| `quality_score` | QualityScoreAgent | LLM → 4-dimension scores (+ RAG) |
-| `error_handler` | RoutingAgent | Catches errors, decides recovery path |
-| `end` | — | Packages CallResult + stores ChromaDB embedding |
+| Node | Agent | Version |
+|------|-------|---------|
+| `intake` | IntakeAgent | V1 |
+| `customer_profile` | CustomerProfileAgent | **V3** |
+| `transcription` | TranscriptionAgent | V1 |
+| `pii_redaction` | PIIRedactionAgent | V2 |
+| `rag_retrieval` | RAGRetrievalAgent | V2 |
+| `kb_retrieval` | KnowledgeBaseAgent | **V3** |
+| `sentiment` | SentimentAgent | V2 |
+| `compliance_check` | ComplianceCheckerAgent | V2 |
+| `escalation_prediction` | EscalationPredictionAgent | V2 |
+| `summarization` | SummarizationAgent | V1 |
+| `auto_tagging` | AutoTaggingAgent | **V3** |
+| `quality_score` | QualityScoreAgent | V1 |
+| `call_coaching` | CallCoachingAgent | **V3** |
+| `anomaly_detection` | AnomalyDetectionAgent | **V3** |
+| `end` + `feedback_loop` | FeedbackLoopAgent | **V3** |
+| `error_handler` | recovery logic | V1 |
         """)
     with col2:
-        st.markdown("**Edges**")
+        st.markdown("**Key Edges**")
         st.markdown("""
-| From | To | Type | Condition |
-|------|----|------|-----------|
-| START | `intake` | fixed | always |
-| `intake` | `transcription` | fixed | always |
-| `transcription` | `pii_redaction` | **conditional** | `errors == []` |
-| `transcription` | `error_handler` | **conditional** | `errors != []` |
-| `pii_redaction` | `rag_retrieval` | fixed | always |
-| `rag_retrieval` | `sentiment` | fixed | always |
-| `sentiment` | `summarization` | fixed | always |
-| `summarization` | `quality_score` | fixed | always |
-| `quality_score` | `end` | fixed | always |
-| `error_handler` | `summarization` | **conditional** | summary missing |
-| `error_handler` | `quality_score` | **conditional** | qa_score missing |
-| `error_handler` | `end` | **conditional** | both present |
-| `end` | END | fixed | always |
+| From | To | Condition |
+|------|----|-----------|
+| START | `intake` | always |
+| `intake` | `customer_profile` | always |
+| `customer_profile` | `transcription` | always |
+| `transcription` | `pii_redaction` | `errors == []` |
+| `transcription` | `error_handler` | `errors != []` |
+| `pii_redaction` | `rag_retrieval` | always |
+| `rag_retrieval` | `kb_retrieval` | always |
+| `kb_retrieval` | `sentiment` | always |
+| `sentiment` | `compliance_check` | always |
+| `compliance_check` | `escalation_prediction` | always |
+| `escalation_prediction` | `summarization` | always |
+| `summarization` | `auto_tagging` | always |
+| `auto_tagging` | `quality_score` | always |
+| `quality_score` | `call_coaching` | always |
+| `call_coaching` | `anomaly_detection` | always |
+| `anomaly_detection` | `end` | always |
+| `end` | END | always |
         """)
 
     st.markdown("---")
@@ -1391,19 +1611,26 @@ digraph Architecture {
     }
 
     subgraph cluster_workflow {
-        label="LangGraph Workflow (9 Nodes)"
+        label="LangGraph Workflow V3 (17 Nodes)"
         color="#4caf50"
         fontcolor="#4caf50"
         style=dashed
-        intake      [label="intake"        fillcolor="#bbdefb" color="#1976d2" shape=box]
-        transcr     [label="transcription" fillcolor="#bbdefb" color="#1976d2" shape=box]
-        pii         [label="pii_redaction" fillcolor="#fce4ec" color="#c62828" shape=box]
-        rag         [label="rag_retrieval" fillcolor="#e1bee7" color="#7b1fa2" shape=box]
-        sent        [label="sentiment"     fillcolor="#fff9c4" color="#f9a825" shape=box]
-        summ        [label="summarization" fillcolor="#bbdefb" color="#1976d2" shape=box]
-        qa          [label="quality_score" fillcolor="#bbdefb" color="#1976d2" shape=box]
-        end_n       [label="end"           fillcolor="#c8e6c9" color="#4caf50" shape=box]
-        errh        [label="error_handler" fillcolor="#ffe0b2" color="#f57c00" shape=box]
+        intake      [label="intake"             fillcolor="#bbdefb" color="#1976d2" shape=box]
+        cust_prof   [label="customer_profile"   fillcolor="#e8f5e9" color="#2e7d32" shape=box]
+        transcr     [label="transcription"      fillcolor="#bbdefb" color="#1976d2" shape=box]
+        pii         [label="pii_redaction"      fillcolor="#fce4ec" color="#c62828" shape=box]
+        rag         [label="rag_retrieval"      fillcolor="#e1bee7" color="#7b1fa2" shape=box]
+        kb          [label="kb_retrieval"       fillcolor="#e8eaf6" color="#3949ab" shape=box]
+        sent        [label="sentiment"          fillcolor="#fff9c4" color="#f9a825" shape=box]
+        comp        [label="compliance_check"   fillcolor="#fce4ec" color="#c62828" shape=box]
+        esc         [label="escalation_pred"    fillcolor="#ffe0b2" color="#e65100" shape=box]
+        summ        [label="summarization"      fillcolor="#bbdefb" color="#1976d2" shape=box]
+        tags        [label="auto_tagging"       fillcolor="#e8f5e9" color="#2e7d32" shape=box]
+        qa          [label="quality_score"      fillcolor="#bbdefb" color="#1976d2" shape=box]
+        coach       [label="call_coaching"      fillcolor="#e8f5e9" color="#2e7d32" shape=box]
+        anom        [label="anomaly_detect"     fillcolor="#fce4ec" color="#c62828" shape=box]
+        end_n       [label="end+feedback"       fillcolor="#c8e6c9" color="#4caf50" shape=box]
+        errh        [label="error_handler"      fillcolor="#ffe0b2" color="#f57c00" shape=box]
     }
 
     subgraph cluster_llm {
@@ -1427,30 +1654,38 @@ digraph Architecture {
         jsonl   [label="Call History\n(JSONL)"        fillcolor="#fff3e0" color="#ff6f00" shape=cylinder]
     }
 
-    ui       -> cache   [label="check first" color="#ff6f00"]
-    ui       -> intake  [label="cache miss" color="#4caf50"]
-    intake   -> transcr
-    transcr  -> pii
-    pii      -> rag
-    rag      -> chroma  [label="query" color="#7b1fa2" style=dashed]
-    chroma   -> rag     [label="top-3 results" color="#7b1fa2" style=dashed]
-    rag      -> sent
-    sent     -> summ
-    summ     -> claude  [color="#9c27b0" style=dashed]
-    summ     -> gpt4    [color="#9c27b0" style=dashed]
-    summ     -> gemini  [color="#9c27b0" style=dashed]
-    qa       -> claude  [color="#9c27b0" style=dashed]
-    qa       -> gpt4    [color="#9c27b0" style=dashed]
-    qa       -> gemini  [color="#9c27b0" style=dashed]
-    summ     -> qa
-    qa       -> end_n
-    end_n    -> cache   [label="save" color="#ff6f00"]
-    end_n    -> chroma  [label="store\nembedding" color="#7b1fa2"]
-    end_n    -> jsonl   [label="call history" color="#ff6f00"]
-    end_n    -> ui      [label="result" color="#4caf50"]
-    transcr  -> whisper [label="audio" color="#9c27b0" style=dashed]
-    transcr  -> errh    [style=dashed color="#f57c00" label="errors"]
-    errh     -> summ    [style=dashed color="#f57c00"]
+    ui        -> cache      [label="check first" color="#ff6f00"]
+    ui        -> intake     [label="cache miss" color="#4caf50"]
+    intake    -> cust_prof
+    cust_prof -> transcr
+    transcr   -> pii
+    pii       -> rag
+    rag       -> chroma     [label="query" color="#7b1fa2" style=dashed]
+    chroma    -> rag        [label="top-3" color="#7b1fa2" style=dashed]
+    rag       -> kb
+    kb        -> sent
+    sent      -> comp
+    comp      -> esc
+    esc       -> summ
+    summ      -> claude     [color="#9c27b0" style=dashed]
+    summ      -> gpt4       [color="#9c27b0" style=dashed]
+    summ      -> gemini     [color="#9c27b0" style=dashed]
+    qa        -> claude     [color="#9c27b0" style=dashed]
+    qa        -> gpt4       [color="#9c27b0" style=dashed]
+    qa        -> gemini     [color="#9c27b0" style=dashed]
+    summ      -> tags
+    tags      -> qa
+    qa        -> coach
+    coach     -> anom
+    anom      -> end_n
+    end_n     -> cache      [label="save" color="#ff6f00"]
+    end_n     -> chroma     [label="store\nembedding" color="#7b1fa2"]
+    end_n     -> jsonl      [label="call history" color="#ff6f00"]
+    end_n     -> ui         [label="result" color="#4caf50"]
+    transcr   -> whisper    [label="audio" color="#9c27b0" style=dashed]
+    transcr   -> errh       [style=dashed color="#f57c00" label="errors"]
+    errh      -> summ       [style=dashed color="#f57c00"]
+    cust_prof -> jsonl      [label="reads history" color="#ff6f00" style=dashed]
 }
 """
     st.graphviz_chart(_arch_dot)
@@ -1459,7 +1694,7 @@ digraph Architecture {
 
     # ── Version History ────────────────────────────────────────────────────────
     st.subheader("🗂️ Version History")
-    v_col1, v_col2 = st.columns(2)
+    v_col1, v_col2, v_col3 = st.columns(3)
     with v_col1:
         st.markdown("**Version 1 — Baseline**")
         st.markdown("""
@@ -1473,16 +1708,28 @@ digraph Architecture {
 - OpenAI Whisper audio transcription
         """)
     with v_col2:
-        st.markdown("**Version 2 — Production-Ready (current)**")
+        st.markdown("**Version 2 — Production RAG**")
         st.markdown("""
-- ✅ **PIIRedactionAgent** — masks phone, email, SSN, card# before LLMs
-- ✅ **RAGRetrievalAgent** — ChromaDB semantic search of past calls
-- ✅ **SentimentAgent** — per-turn sentiment + escalation risk scoring
-- ✅ 9-node LangGraph pipeline (intake → transcription → pii → rag → sentiment → summarize → qa → end)
-- ✅ Vector embeddings stored after every processed call
-- ✅ RAG context injected into summarization + QA prompts
-- ✅ Architecture tab (this view)
-- ✅ Sentiment chart + PII audit in Results tab
+- ✅ **PIIRedactionAgent** — masks PII before LLMs
+- ✅ **RAGRetrievalAgent** — ChromaDB semantic search
+- ✅ **SentimentAgent** — per-turn + escalation risk
+- ✅ **ComplianceCheckerAgent** — HIPAA/GDPR/PCI
+- ✅ **EscalationPredictionAgent** — risk scoring
+- ✅ 11-node LangGraph pipeline
+- ✅ RAG context injected into all LLM prompts
+- ✅ Architecture tab added
+        """)
+    with v_col3:
+        st.markdown("**Version 3 — Full AI Suite (current)**")
+        st.markdown("""
+- ✅ **CustomerProfileAgent** — cross-call journey
+- ✅ **KnowledgeBaseAgent** — SOP compliance check
+- ✅ **AutoTaggingAgent** — multi-label routing tags
+- ✅ **CallCoachingAgent** — personalised coaching
+- ✅ **AnomalyDetectionAgent** — outlier flagging
+- ✅ **FeedbackLoopAgent** — coaching effectiveness
+- ✅ 17-node LangGraph pipeline
+- ✅ Zero-cost agents (no extra LLM calls for 3 of 6)
         """)
 
     st.markdown("---")
@@ -1531,23 +1778,23 @@ digraph Architecture {
     st.markdown("---")
 
     # ── Agent Roadmap ──────────────────────────────────────────────────────────
-    st.subheader("🚀 Agent Roadmap")
-    st.caption("Ideas for Version 3+ — each adds a new capability without breaking the existing pipeline.")
+    st.subheader("🚀 Agent Roadmap — ALL 8 AGENTS COMPLETE ✅")
+    st.caption("All 8 agents from the original roadmap are now implemented across V2 and V3.")
 
     road_col1, road_col2 = st.columns(2)
     with road_col1:
-        st.markdown("**Agents in progress / planned**")
+        st.markdown("**All 8 agents — implemented**")
         st.markdown("""
-| Agent | What it does | Value |
-|-------|-------------|-------|
-| `ComplianceCheckerAgent` | Scans transcript for HIPAA/GDPR/PCI policy violations | Regulatory risk reduction |
-| `EscalationPredictionAgent` | Predicts escalation probability mid-call | Real-time supervisor alert |
-| `CallCoachingAgent` | Generates personalised coaching tips per agent | Agent performance uplift |
-| `KnowledgeBaseAgent` | RAG against internal SOPs and product docs | Faster, more accurate responses |
-| `CustomerProfileAgent` | Cross-call customer journey tracking | Repeat-caller context |
-| `AutoTaggingAgent` | Multi-label classification (billing, fraud, etc.) | Routing + analytics |
-| `AnomalyDetectionAgent` | Flags statistical outliers (very long calls, re-escalations) | Ops monitoring |
-| `FeedbackLoopAgent` | Tracks if QA feedback was acted on | Closed-loop quality |
+| Agent | Version | Business Value |
+|-------|---------|---------------|
+| ✅ `ComplianceCheckerAgent` | V2 | HIPAA/GDPR/PCI violation scanning |
+| ✅ `EscalationPredictionAgent` | V2 | Real-time supervisor alert |
+| ✅ `CallCoachingAgent` | V3 | Per-agent personalised coaching |
+| ✅ `KnowledgeBaseAgent` | V3 | SOP compliance + KB retrieval |
+| ✅ `CustomerProfileAgent` | V3 | Cross-call customer journey |
+| ✅ `AutoTaggingAgent` | V3 | Multi-label routing + analytics |
+| ✅ `AnomalyDetectionAgent` | V3 | Outlier flagging for QA review |
+| ✅ `FeedbackLoopAgent` | V3 | Closed-loop coaching effectiveness |
         """)
     with road_col2:
         st.markdown("**Infrastructure upgrades**")
@@ -1571,7 +1818,7 @@ digraph Architecture {
     check_col1, check_col2 = st.columns(2)
     with check_col1:
         st.markdown("""
-**Implemented**
+**Implemented (V1-V3)**
 - ✅ PII redaction before LLM calls (GDPR / HIPAA)
 - ✅ File-based caching (zero duplicate API spend)
 - ✅ ChromaDB vector store (semantic memory)
@@ -1581,6 +1828,13 @@ digraph Architecture {
 - ✅ Docker containerization
 - ✅ AWS EC2 deploy scripts + SSM secrets
 - ✅ Sentiment + escalation risk scoring
+- ✅ Compliance checking (6 regulation categories)
+- ✅ Customer profile & journey tracking
+- ✅ Knowledge base SOP compliance
+- ✅ Multi-label auto-tagging & routing
+- ✅ Personalised agent coaching
+- ✅ Statistical anomaly detection
+- ✅ Coaching feedback loop
         """)
     with check_col2:
         st.markdown("""
