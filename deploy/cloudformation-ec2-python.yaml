@@ -8,8 +8,8 @@ Description: >
 Parameters:
   InstanceType:
     Type: String
-    Default: t3.small
-    AllowedValues: [t3.micro, t3.small, t3.medium]
+    Default: t2.medium
+    AllowedValues: [t2.micro, t2.medium, t2.xlarge]
 
   KeyPairName:
     Type: AWS::EC2::KeyPair::KeyName
@@ -63,7 +63,7 @@ Resources:
   AppSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Call Center AI — SSH + Streamlit
+      GroupDescription: Call Center AI - SSH and Streamlit
       SecurityGroupIngress:
         - {IpProtocol: tcp, FromPort: 22,   ToPort: 22,   CidrIp: "0.0.0.0/0", Description: SSH}
         - {IpProtocol: tcp, FromPort: 80,   ToPort: 80,   CidrIp: "0.0.0.0/0", Description: HTTP}
@@ -128,44 +128,41 @@ Resources:
           GOOGLE_API_KEY=$(fetch "${SSMPrefix}/GOOGLE_API_KEY")
 
           echo "=== [5/6] Write environment file ==="
-          cat > "$APP_DIR/.env" <<EOF
-          ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
-          OPENAI_API_KEY=$OPENAI_API_KEY
-          GOOGLE_API_KEY=$GOOGLE_API_KEY
-          DEFAULT_LLM=${DefaultLLM}
-          MOCK_LLM=false
-          LOG_LEVEL=INFO
-          CLAUDE_MODEL=claude-sonnet-4-5-20250929
-          GPT4_MODEL=gpt-4o
-          GEMINI_MODEL=gemini-2.5-flash
-          WHISPER_MODEL=whisper-1
-          EOF
+          {
+            echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY"
+            echo "OPENAI_API_KEY=$OPENAI_API_KEY"
+            echo "GOOGLE_API_KEY=$GOOGLE_API_KEY"
+            echo "DEFAULT_LLM=${DefaultLLM}"
+            echo "MOCK_LLM=false"
+            echo "LOG_LEVEL=INFO"
+            echo "CLAUDE_MODEL=claude-sonnet-4-5-20250929"
+            echo "GPT4_MODEL=gpt-4o"
+            echo "GEMINI_MODEL=gemini-2.5-flash-preview-04-17"
+            echo "WHISPER_MODEL=whisper-1"
+          } > "$APP_DIR/.env"
 
           echo "=== [6/6] Create and start systemd service ==="
           chown -R ec2-user:ec2-user "$APP_DIR"
 
-          cat > /etc/systemd/system/call-center-ai.service <<UNIT
-          [Unit]
-          Description=Call Center AI Streamlit App
-          After=network.target
-
-          [Service]
-          Type=simple
-          User=ec2-user
-          WorkingDirectory=$APP_DIR
-          ExecStart=python3.11 -m streamlit run ui/streamlit_app.py \
-            --server.port=8501 \
-            --server.address=0.0.0.0 \
-            --browser.gatherUsageStats=false
-          EnvironmentFile=$APP_DIR/.env
-          Restart=always
-          RestartSec=10
-          StandardOutput=journal
-          StandardError=journal
-
-          [Install]
-          WantedBy=multi-user.target
-          UNIT
+          {
+            echo "[Unit]"
+            echo "Description=Call Center AI Streamlit App"
+            echo "After=network.target"
+            echo ""
+            echo "[Service]"
+            echo "Type=simple"
+            echo "User=ec2-user"
+            echo "WorkingDirectory=$APP_DIR"
+            echo "ExecStart=python3.11 -m streamlit run ui/streamlit_app.py --server.port=8501 --server.address=0.0.0.0 --browser.gatherUsageStats=false"
+            echo "EnvironmentFile=$APP_DIR/.env"
+            echo "Restart=always"
+            echo "RestartSec=10"
+            echo "StandardOutput=journal"
+            echo "StandardError=journal"
+            echo ""
+            echo "[Install]"
+            echo "WantedBy=multi-user.target"
+          } > /etc/systemd/system/call-center-ai.service
 
           systemctl daemon-reload
           systemctl enable call-center-ai
