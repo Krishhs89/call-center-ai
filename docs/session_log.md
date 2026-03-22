@@ -81,6 +81,65 @@ New transcript arrives
 
 ---
 
+## Session 5 — 2026-03-21 (continued)
+
+### Version 3: Full AI Agent Suite — All 8 Agents Complete
+
+#### New agents implemented (6 of 8 remaining from roadmap)
+
+| # | Agent | File | Key output |
+|---|-------|------|------------|
+| 3 | CallCoachingAgent | `agents/call_coaching_agent.py` | agent_strengths, coaching_tips (with example_scripts), next_call_focus, estimated_improvement |
+| 4 | KnowledgeBaseAgent | `agents/knowledge_base_agent.py` | relevant_articles, sop_compliance_score, missed_knowledge_opportunities, recommended_training_articles |
+| 5 | CustomerProfileAgent | `agents/customer_profile_agent.py` | risk_tier (VIP/at_risk/churning/regular), total_calls, escalation_count, sentiment_trend — **no LLM call** |
+| 6 | AutoTaggingAgent | `agents/auto_tagging_agent.py` | primary_category, sub_category, intent_tags, routing_tags, product_tags, confidence_score |
+| 7 | AnomalyDetectionAgent | `agents/anomaly_detection_agent.py` | anomaly_score 0-100, flags list, requires_review, statistical z-score vs history — **no LLM call** |
+| 8 | FeedbackLoopAgent | `agents/feedback_loop_agent.py` | improvement_status, score_delta, coaching_adoption_rate, improved/regressed dimensions — **no LLM call** |
+
+#### Pipeline: 11 → 17 nodes
+```
+intake → customer_profile → transcription → pii_redaction → rag_retrieval
+       → kb_retrieval → sentiment → compliance_check → escalation_prediction
+       → summarization → auto_tagging → quality_score → call_coaching
+       → anomaly_detection → end
+(+ FeedbackLoopAgent runs post-workflow in run_workflow())
+(+ error_handler branch)
+```
+
+#### Key design decisions
+- CustomerProfileAgent, AnomalyDetectionAgent, FeedbackLoopAgent: **zero LLM cost** — pure data/stats
+- KnowledgeBaseAgent: dual mode — `retrieve_context()` for prompt injection + `process()` for SOP audit
+- AutoTaggingAgent: runs after summarization (has summary available to enrich tagging accuracy)
+- CallCoachingAgent: runs after quality_score (consumes QA dimension_scores to prioritise weakest dims)
+- FeedbackLoopAgent: post-workflow (needs assembled CallResult to compare against JSONL history)
+- KB articles seeded as DEFAULT_KB_ARTICLES in knowledge_base_agent.py (7 articles covering refund, verification, escalation, billing, tech support, recording consent, shipping)
+- `_v2_extras` dict now carries 13 keys: all V2 + customer_profile, kb_context, kb_analysis, tags, coaching, anomaly, feedback_loop
+
+#### Smoke test result (MOCK_LLM=true)
+- QA: 74.0/100
+- Customer Profile: regular (first call)
+- KB SOP: 80.0%
+- Tags: billing | routing: [route_to_billing, route_to_supervisor]
+- Coaching: HIGH priority, 1 tip
+- Anomaly: medium (35/100)
+- Escalation: critical (100/100)
+
+#### Git commit
+`f7f00fc` — "Version 3: Full AI Agent Suite — all 8 roadmap agents implemented"
+
+#### Streamlit UI: 8 new panels added to Results tab
+1. Customer Profile (risk tier, history stats, top issues)
+2. Auto Tags (primary category, intent, routing, products)
+3. Knowledge Base (SOP compliance, article compliance cards, training recommendations)
+4. Call Coaching (strengths, prioritised tips with example scripts)
+5. Anomaly Detection (anomaly flags, statistical context)
+6. Feedback Loop (score delta, dimension improvements, coaching adoption)
+7. V3 Processing Details (PII + RAG + KB context)
+
+Workflow diagram, Architecture diagram, Version History, Roadmap all updated to V3.
+
+---
+
 ## Session 4 — 2026-03-21 (continued)
 
 ### Agent Roadmap Implementation (1 of 8 started)
