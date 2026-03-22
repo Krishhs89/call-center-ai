@@ -86,13 +86,14 @@ class QualityScoreAgent:
             self.logger.error(f"Failed to import LLM: {e}")
             raise ValueError(f"LLM {llm_name} not available. Install required dependencies.")
 
-    def process(self, call_id: str, transcript: str) -> QAScore:
+    def process(self, call_id: str, transcript: str, rag_context: str = "") -> QAScore:
         """
         Score a call transcript across multiple dimensions.
 
         Args:
             call_id: Call identifier
             transcript: Call transcript text
+            rag_context: Formatted context from similar past calls (optional)
 
         Returns:
             QAScore: Multi-dimensional quality assessment
@@ -108,10 +109,11 @@ class QualityScoreAgent:
             self.logger.info(f"[MOCK] Returning mock QA score for {call_id}")
             return self._mock_qa_score(call_id, transcript)
 
-        self.logger.info(f"Scoring call {call_id} with {self.llm_name}")
+        self.logger.info(f"Scoring call {call_id} with {self.llm_name}" +
+                         (" [+RAG]" if rag_context else ""))
         start_time = time.time()
 
-        prompt = self._build_prompt(transcript)
+        prompt = self._build_prompt(transcript, rag_context)
 
         try:
             # Gemini function-calling rejects list[str] fields without explicit items;
@@ -250,18 +252,26 @@ class QualityScoreAgent:
             improvements=improvements,
         )
 
-    def _build_prompt(self, transcript: str) -> str:
+    def _build_prompt(self, transcript: str, rag_context: str = "") -> str:
         """
-        Build the prompt for QA scoring.
+        Build the prompt for QA scoring, optionally including RAG context.
 
         Args:
             transcript: Call transcript
+            rag_context: Formatted similar-call context from vector store
 
         Returns:
             str: Formatted prompt
         """
-        return f"""Evaluate the following call transcript and provide a quality assessment of the agent's performance.
+        context_block = ""
+        if rag_context:
+            context_block = (
+                f"\n\n{rag_context}\n\n"
+                "Consider the similar past calls above when calibrating your scores "
+                "(e.g. consistent scoring patterns for similar issue types).\n"
+            )
 
+        return f"""Evaluate the following call transcript and provide a quality assessment of the agent's performance.{context_block}
 TRANSCRIPT:
 {transcript}
 

@@ -23,6 +23,7 @@ from evaluation.benchmark import BenchmarkRunner
 from utils.schemas import CallInput, CallResult, BenchmarkResult, SummaryOutput, QAScore
 from utils.cache import get_cached, save_cache, list_cache_entries, delete_cache_entry, clear_cache
 from utils.memory import call_memory
+from utils.vector_store import get_vector_store_stats
 from utils.validation import validate_transcript_text, validate_audio_file, sanitize_transcript, SUPPORTED_AUDIO_FORMATS
 from config.settings import settings
 
@@ -59,6 +60,8 @@ if "audio_transcript" not in st.session_state:
     st.session_state.audio_transcript = None
 if "audio_filename" not in st.session_state:
     st.session_state.audio_filename = None
+if "v2_extras" not in st.session_state:
+    st.session_state.v2_extras = {}  # pii_summary, sentiment, rag_context
 
 
 def load_sample_transcript(sample_name: str) -> dict:
@@ -183,6 +186,18 @@ with st.sidebar:
     else:
         st.info("No cached results yet")
 
+    # Vector DB (RAG)
+    st.subheader("🔍 Vector DB (RAG)")
+    vdb = get_vector_store_stats()
+    if vdb["available"]:
+        st.success(f"✓ ChromaDB active — {vdb['count']} embedding(s) stored")
+        if vdb["count"] > 0:
+            st.caption("Similar past calls will be retrieved to enrich LLM prompts.")
+        else:
+            st.caption("Process a call to start building the RAG knowledge base.")
+    else:
+        st.warning("⚠ ChromaDB unavailable (install `chromadb`)")
+
 
 def _derive_tags(summary) -> list:
     """Derive keyword tags from a SummaryOutput without extra API calls."""
@@ -225,8 +240,8 @@ def _derive_highlights(summary) -> list:
 
 
 # Main content tabs
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    ["📤 Upload", "📋 Results", "⭐ QA Score", "🔬 Benchmark", "🗺️ Workflow", "📜 Call History"]
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+    ["📤 Upload", "📋 Results", "⭐ QA Score", "🔬 Benchmark", "🗺️ Workflow", "📜 Call History", "🏗️ Architecture"]
 )
 
 # TAB 1: Upload
@@ -380,9 +395,11 @@ with tab1:
                         save_cache(transcript_input, llm_choice, "workflow", data)
 
                         st.session_state.call_result = call_result
-                        st.session_state.benchmark_result = None  # clear stale benchmark
+                        st.session_state.benchmark_result = None
                         st.session_state.active_call_id = call_result.call_id
                         st.session_state.active_llm = llm_choice
+                        # Capture V2 extras (PII, sentiment, RAG)
+                        st.session_state.v2_extras = getattr(call_result, "_v2_extras", {})
                         st.success(f"✓ Call {call_result.call_id} processed and cached")
 
             except Exception as e:
@@ -457,6 +474,55 @@ with tab2:
                 highlights = _derive_highlights(result.summary)
                 for h in highlights:
                     st.info(f"💡 {h}")
+
+        # ── V2: Sentiment Analysis ────────────────────────────────────────────
+        sentiment = st.session_state.v2_extras.get("sentiment")
+        if sentiment and sentiment.get("overall_customer_sentiment", "unknown") != "unknown":
+            st.subheader("🎭 Sentiment Analysis")
+            sent_col1, sent_col2, sent_col3, sent_col4 = st.columns(4)
+            risk = sentiment.get("escalation_risk", "unknown")
+            risk_color = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(risk, "⚪")
+            trend_icon = {"improving": "📈", "stable": "➡️", "degrading": "📉"}.get(
+                sentiment.get("customer_sentiment_trend", ""), "")
+            with sent_col1:
+                st.metric("Customer Sentiment", sentiment.get("overall_customer_sentiment", "N/A").title())
+            with sent_col2:
+                st.metric("Sentiment Trend", f"{trend_icon} {sentiment.get('customer_sentiment_trend', 'N/A').title()}")
+            with sent_col3:
+                st.metric("Escalation Risk", f"{risk_color} {risk.title()}")
+            with sent_col4:
+                st.metric("Agent Tone", "See below")
+            st.caption(f"**Agent tone:** {sentiment.get('agent_tone', 'N/A')}")
+            if sentiment.get("escalation_risk_reason"):
+                st.caption(f"**Risk reason:** {sentiment['escalation_risk_reason']}")
+
+            # Turn-by-turn sentiment chart
+            turns = sentiment.get("turns", [])
+            if turns:
+                import pandas as pd
+                df_turns = pd.DataFrame(turns)
+                if "score" in df_turns.columns and "speaker" in df_turns.columns:
+                    df_turns["turn"] = range(1, len(df_turns) + 1)
+                    with st.expander("📊 Turn-by-Turn Sentiment Chart", expanded=False):
+                        st.bar_chart(df_turns.set_index("turn")[["score"]])
+                        st.caption("Score: -1.0 = very negative → 1.0 = very positive")
+
+        # ── V2: PII Redaction Summary ─────────────────────────────────────────
+        pii_summary = st.session_state.v2_extras.get("pii_summary", {})
+        rag_ctx = st.session_state.v2_extras.get("rag_context", "")
+        if pii_summary or rag_ctx:
+            with st.expander("🔒 V2 Processing Details", expanded=False):
+                if pii_summary:
+                    total_pii = sum(pii_summary.values())
+                    st.success(f"🔒 PII Redaction: {total_pii} item(s) masked before LLM processing")
+                    for field, count in pii_summary.items():
+                        st.caption(f"  • {field.replace('_', ' ').title()}: {count}")
+                else:
+                    st.info("🔒 PII Redaction: No PII detected in transcript")
+                if rag_ctx:
+                    st.success(f"🔍 RAG: Similar past calls retrieved ({len(rag_ctx)} chars of context injected)")
+                else:
+                    st.info("🔍 RAG: No similar past calls yet (vector store building up)")
 
         # Errors
         if result.errors:
@@ -883,12 +949,13 @@ with tab5:
 2. **intake** validates the transcript and assigns a `call_id`.
 3. **transcription** normalises speaker labels to `Agent:` / `Customer:`.
 4. *Conditional split:*
-   - No errors → straight to **summarization**
+   - No errors → **rag_retrieval** queries ChromaDB for similar past calls
    - Errors detected → **error_handler** attempts recovery, then rejoins
-5. **summarization** calls the selected LLM and extracts a structured summary, key points, action items, and resolution status.
-6. **quality_score** calls the LLM again and scores the agent across 4 dimensions (empathy, professionalism, resolution, compliance — 25 pts each).
-7. **end** packages everything into a `CallResult` object.
-8. **END** returns control to the Streamlit UI.
+5. **rag_retrieval** embeds the transcript and retrieves the top-3 semantically similar past calls from ChromaDB to form a RAG context block.
+6. **summarization** calls the selected LLM with the transcript + RAG context injected into the prompt.
+7. **quality_score** calls the LLM again with the same RAG context to calibrate scores against comparable past calls.
+8. **end** packages everything into a `CallResult` and stores the call's embedding in ChromaDB for future RAG retrieval.
+9. **END** returns control to the Streamlit UI.
 
 ---
 **error_handler recovery logic**
@@ -903,21 +970,27 @@ digraph LangGraph {
     rankdir=TD
     bgcolor=white
     fontname=Helvetica
-    node [fontname=Helvetica fontsize=12]
+    node [fontname=Helvetica fontsize=11]
 
-    __start__ [label="START" shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
-    intake     [label="intake\n(IntakeAgent)"        shape=box  style=filled fillcolor="#bbdefb" color="#1976d2"]
+    __start__     [label="START" shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
+    intake        [label="intake\n(IntakeAgent)"               shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
     transcription [label="transcription\n(TranscriptionAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
     error_handler [label="error_handler\n(RoutingAgent)"       shape=box style=filled fillcolor="#ffe0b2" color="#f57c00"]
+    pii_redaction [label="pii_redaction\n(PIIRedactionAgent)"  shape=box style=filled fillcolor="#fce4ec" color="#c62828"]
+    rag_retrieval [label="rag_retrieval\n(RAGAgent + ChromaDB)" shape=box style=filled fillcolor="#e1bee7" color="#7b1fa2"]
+    sentiment     [label="sentiment\n(SentimentAgent)"          shape=box style=filled fillcolor="#fff9c4" color="#f9a825"]
     summarization [label="summarization\n(SummarizationAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
     quality_score [label="quality_score\n(QualityScoreAgent)"  shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
-    end_node   [label="end"             shape=box  style=filled fillcolor="#c8e6c9" color="#4caf50"]
-    __end__    [label="END"             shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
+    end_node      [label="end\n(store ChromaDB embedding)"     shape=box style=filled fillcolor="#c8e6c9" color="#4caf50"]
+    __end__       [label="END" shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
 
     __start__     -> intake          [color="#333333"]
     intake        -> transcription   [color="#333333"]
-    transcription -> summarization   [color="#333333" label="errors == []"]
+    transcription -> pii_redaction   [color="#333333" label="errors == []"]
     transcription -> error_handler   [color="#f57c00" style=dashed label="errors != []"]
+    pii_redaction -> rag_retrieval   [color="#c62828" label="redacted transcript"]
+    rag_retrieval -> sentiment       [color="#7b1fa2" label="+ RAG context"]
+    sentiment     -> summarization   [color="#f9a825" label="+ sentiment data"]
     error_handler -> summarization   [color="#f57c00" style=dashed label="summary missing"]
     error_handler -> quality_score   [color="#f57c00" style=dashed label="qa missing"]
     error_handler -> end_node        [color="#f57c00" style=dashed label="both present"]
@@ -936,16 +1009,19 @@ digraph LangGraph {
 
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("**Nodes (Agents)**")
+        st.markdown("**Nodes (Agents) — Version 2**")
         st.markdown("""
 | Node | Agent | Role |
 |------|-------|------|
 | `intake` | IntakeAgent | Validates input, generates call_id |
-| `transcription` | TranscriptionAgent | Normalizes speaker labels |
-| `summarization` | SummarizationAgent | LLM call → summary + key points |
-| `quality_score` | QualityScoreAgent | LLM call → 4-dimension scores |
-| `error_handler` | RoutingAgent | Catches errors, decides recovery |
-| `end` | — | Packages final CallResult |
+| `transcription` | TranscriptionAgent | Normalizes speaker labels / runs Whisper |
+| `pii_redaction` | PIIRedactionAgent | Masks PII before any LLM sees the text |
+| `rag_retrieval` | RAGRetrievalAgent | Queries ChromaDB for similar past calls |
+| `sentiment` | SentimentAgent | Per-turn sentiment + escalation risk |
+| `summarization` | SummarizationAgent | LLM → summary + key points (+ RAG) |
+| `quality_score` | QualityScoreAgent | LLM → 4-dimension scores (+ RAG) |
+| `error_handler` | RoutingAgent | Catches errors, decides recovery path |
+| `end` | — | Packages CallResult + stores ChromaDB embedding |
         """)
     with col2:
         st.markdown("**Edges**")
@@ -954,8 +1030,11 @@ digraph LangGraph {
 |------|----|------|-----------|
 | START | `intake` | fixed | always |
 | `intake` | `transcription` | fixed | always |
-| `transcription` | `summarization` | **conditional** | `errors == []` |
+| `transcription` | `pii_redaction` | **conditional** | `errors == []` |
 | `transcription` | `error_handler` | **conditional** | `errors != []` |
+| `pii_redaction` | `rag_retrieval` | fixed | always |
+| `rag_retrieval` | `sentiment` | fixed | always |
+| `sentiment` | `summarization` | fixed | always |
 | `summarization` | `quality_score` | fixed | always |
 | `quality_score` | `end` | fixed | always |
 | `error_handler` | `summarization` | **conditional** | summary missing |
@@ -977,6 +1056,7 @@ digraph LangGraph {
     call_id:      str             # unique call identifier
     input_data:   CallInput       # raw transcript + metadata
     transcript:   TranscriptOutput# normalized text + speakers
+    rag_context:  str             # similar past calls from ChromaDB
     summary:      SummaryOutput   # summary, key_points, action_items
     qa_score:     QAScore         # empathy/prof/resolution/compliance
     errors:       list[str]       # drives conditional routing
@@ -1210,6 +1290,235 @@ with tab6:
             df = pd.DataFrame(list(cat_data.items()), columns=["Category", "Count"])
             df = df.sort_values("Count", ascending=False)
             st.bar_chart(df.set_index("Category"))
+
+
+# TAB 7: Architecture
+with tab7:
+    st.header("🏗️ System Architecture")
+    st.caption("Version 2 — Production-ready multi-agent call center AI with RAG, PII redaction, and sentiment analysis.")
+
+    # ── Overview Diagram ───────────────────────────────────────────────────────
+    st.subheader("📐 Full System Diagram")
+    _arch_dot = """
+digraph Architecture {
+    rankdir=LR
+    bgcolor=white
+    fontname=Helvetica
+    node [fontname=Helvetica fontsize=11 style=filled]
+
+    subgraph cluster_ui {
+        label="Streamlit UI"
+        color="#1976d2"
+        fontcolor="#1976d2"
+        style=dashed
+        ui [label="Web Browser\n(7 Tabs)" shape=box fillcolor="#e3f2fd" color="#1976d2"]
+    }
+
+    subgraph cluster_workflow {
+        label="LangGraph Workflow (9 Nodes)"
+        color="#4caf50"
+        fontcolor="#4caf50"
+        style=dashed
+        intake      [label="intake"        fillcolor="#bbdefb" color="#1976d2" shape=box]
+        transcr     [label="transcription" fillcolor="#bbdefb" color="#1976d2" shape=box]
+        pii         [label="pii_redaction" fillcolor="#fce4ec" color="#c62828" shape=box]
+        rag         [label="rag_retrieval" fillcolor="#e1bee7" color="#7b1fa2" shape=box]
+        sent        [label="sentiment"     fillcolor="#fff9c4" color="#f9a825" shape=box]
+        summ        [label="summarization" fillcolor="#bbdefb" color="#1976d2" shape=box]
+        qa          [label="quality_score" fillcolor="#bbdefb" color="#1976d2" shape=box]
+        end_n       [label="end"           fillcolor="#c8e6c9" color="#4caf50" shape=box]
+        errh        [label="error_handler" fillcolor="#ffe0b2" color="#f57c00" shape=box]
+    }
+
+    subgraph cluster_llm {
+        label="LLM Layer"
+        color="#9c27b0"
+        fontcolor="#9c27b0"
+        style=dashed
+        claude  [label="Claude\nSonnet 4.5"   fillcolor="#f3e5f5" color="#9c27b0" shape=box]
+        gpt4    [label="GPT-4o"               fillcolor="#f3e5f5" color="#9c27b0" shape=box]
+        gemini  [label="Gemini 2.5\nFlash"    fillcolor="#f3e5f5" color="#9c27b0" shape=box]
+        whisper [label="Whisper\n(audio STT)" fillcolor="#f3e5f5" color="#9c27b0" shape=box]
+    }
+
+    subgraph cluster_stores {
+        label="Data Stores"
+        color="#ff6f00"
+        fontcolor="#ff6f00"
+        style=dashed
+        cache   [label="SHA-256 Cache\n(file-based)" fillcolor="#fff3e0" color="#ff6f00" shape=cylinder]
+        chroma  [label="ChromaDB\n(vector store)"    fillcolor="#fff3e0" color="#ff6f00" shape=cylinder]
+        jsonl   [label="Call History\n(JSONL)"        fillcolor="#fff3e0" color="#ff6f00" shape=cylinder]
+    }
+
+    ui       -> cache   [label="check first" color="#ff6f00"]
+    ui       -> intake  [label="cache miss" color="#4caf50"]
+    intake   -> transcr
+    transcr  -> pii
+    pii      -> rag
+    rag      -> chroma  [label="query" color="#7b1fa2" style=dashed]
+    chroma   -> rag     [label="top-3 results" color="#7b1fa2" style=dashed]
+    rag      -> sent
+    sent     -> summ
+    summ     -> claude  [color="#9c27b0" style=dashed]
+    summ     -> gpt4    [color="#9c27b0" style=dashed]
+    summ     -> gemini  [color="#9c27b0" style=dashed]
+    qa       -> claude  [color="#9c27b0" style=dashed]
+    qa       -> gpt4    [color="#9c27b0" style=dashed]
+    qa       -> gemini  [color="#9c27b0" style=dashed]
+    summ     -> qa
+    qa       -> end_n
+    end_n    -> cache   [label="save" color="#ff6f00"]
+    end_n    -> chroma  [label="store\nembedding" color="#7b1fa2"]
+    end_n    -> jsonl   [label="call history" color="#ff6f00"]
+    end_n    -> ui      [label="result" color="#4caf50"]
+    transcr  -> whisper [label="audio" color="#9c27b0" style=dashed]
+    transcr  -> errh    [style=dashed color="#f57c00" label="errors"]
+    errh     -> summ    [style=dashed color="#f57c00"]
+}
+"""
+    st.graphviz_chart(_arch_dot)
+
+    st.markdown("---")
+
+    # ── Version History ────────────────────────────────────────────────────────
+    st.subheader("🗂️ Version History")
+    v_col1, v_col2 = st.columns(2)
+    with v_col1:
+        st.markdown("**Version 1 — Baseline**")
+        st.markdown("""
+- 5 agents: intake, transcription, summarization, quality_score, routing
+- LangGraph state machine with conditional routing
+- 3 LLMs: Claude, GPT-4o, Gemini 2.5 Flash
+- File-based SHA-256 cache
+- JSONL call history (memory layer)
+- Streamlit UI: 6 tabs
+- Docker + docker-compose
+- OpenAI Whisper audio transcription
+        """)
+    with v_col2:
+        st.markdown("**Version 2 — Production-Ready (current)**")
+        st.markdown("""
+- ✅ **PIIRedactionAgent** — masks phone, email, SSN, card# before LLMs
+- ✅ **RAGRetrievalAgent** — ChromaDB semantic search of past calls
+- ✅ **SentimentAgent** — per-turn sentiment + escalation risk scoring
+- ✅ 9-node LangGraph pipeline (intake → transcription → pii → rag → sentiment → summarize → qa → end)
+- ✅ Vector embeddings stored after every processed call
+- ✅ RAG context injected into summarization + QA prompts
+- ✅ Architecture tab (this view)
+- ✅ Sentiment chart + PII audit in Results tab
+        """)
+
+    st.markdown("---")
+
+    # ── Tech Stack ─────────────────────────────────────────────────────────────
+    st.subheader("🛠️ Tech Stack")
+    t_col1, t_col2, t_col3 = st.columns(3)
+    with t_col1:
+        st.markdown("**AI / Orchestration**")
+        st.markdown("""
+| Component | Library |
+|-----------|---------|
+| Agent orchestration | LangGraph |
+| LLM integration | LangChain |
+| Structured output | Pydantic v2 |
+| Claude | `langchain-anthropic` |
+| GPT-4o | `langchain-openai` |
+| Gemini | `langchain-google-genai` |
+| Whisper STT | OpenAI API |
+        """)
+    with t_col2:
+        st.markdown("**Data / Storage**")
+        st.markdown("""
+| Component | Technology |
+|-----------|------------|
+| Vector store | ChromaDB (local) |
+| Embeddings | `text-embedding-3-small` |
+| Exact cache | SHA-256 / JSON files |
+| Call history | JSONL flat file |
+| Config | `.env` + Pydantic Settings |
+| Model control | `config/mcp.yaml` |
+        """)
+    with t_col3:
+        st.markdown("**Infrastructure**")
+        st.markdown("""
+| Component | Technology |
+|-----------|------------|
+| UI | Streamlit |
+| Containerization | Docker + docker-compose |
+| Cloud UI | Streamlit Community Cloud |
+| Cloud infra | AWS EC2 + ECR + SSM |
+| IaC | CloudFormation |
+| Observability | LangSmith tracing |
+        """)
+
+    st.markdown("---")
+
+    # ── Agent Roadmap ──────────────────────────────────────────────────────────
+    st.subheader("🚀 Agent Roadmap")
+    st.caption("Ideas for Version 3+ — each adds a new capability without breaking the existing pipeline.")
+
+    road_col1, road_col2 = st.columns(2)
+    with road_col1:
+        st.markdown("**Agents in progress / planned**")
+        st.markdown("""
+| Agent | What it does | Value |
+|-------|-------------|-------|
+| `ComplianceCheckerAgent` | Scans transcript for HIPAA/GDPR/PCI policy violations | Regulatory risk reduction |
+| `EscalationPredictionAgent` | Predicts escalation probability mid-call | Real-time supervisor alert |
+| `CallCoachingAgent` | Generates personalised coaching tips per agent | Agent performance uplift |
+| `KnowledgeBaseAgent` | RAG against internal SOPs and product docs | Faster, more accurate responses |
+| `CustomerProfileAgent` | Cross-call customer journey tracking | Repeat-caller context |
+| `AutoTaggingAgent` | Multi-label classification (billing, fraud, etc.) | Routing + analytics |
+| `AnomalyDetectionAgent` | Flags statistical outliers (very long calls, re-escalations) | Ops monitoring |
+| `FeedbackLoopAgent` | Tracks if QA feedback was acted on | Closed-loop quality |
+        """)
+    with road_col2:
+        st.markdown("**Infrastructure upgrades**")
+        st.markdown("""
+| Upgrade | Benefit |
+|---------|---------|
+| FastAPI sidecar | REST API for external integrations |
+| Redis cache | Shared cache across instances (vs file-based) |
+| Pinecone / Weaviate | Managed vector DB with metadata filtering |
+| Async LangGraph | Parallel LLM calls (sentiment + summarization concurrently) |
+| Streaming responses | Real-time token streaming to UI |
+| Webhook support | Push results to CRM / Slack on completion |
+| Role-based access | Multi-tenant auth (per team / per agent) |
+| Batch processing | Process hundreds of calls overnight |
+        """)
+
+    st.markdown("---")
+
+    # ── Production Checklist ───────────────────────────────────────────────────
+    st.subheader("✅ Production Readiness Checklist")
+    check_col1, check_col2 = st.columns(2)
+    with check_col1:
+        st.markdown("""
+**Implemented**
+- ✅ PII redaction before LLM calls (GDPR / HIPAA)
+- ✅ File-based caching (zero duplicate API spend)
+- ✅ ChromaDB vector store (semantic memory)
+- ✅ Error recovery (conditional routing)
+- ✅ LangSmith observability tracing
+- ✅ Multi-LLM fallback support
+- ✅ Docker containerization
+- ✅ AWS EC2 deploy scripts + SSM secrets
+- ✅ Sentiment + escalation risk scoring
+        """)
+    with check_col2:
+        st.markdown("""
+**Next steps for scale**
+- ⬜ Redis / Memcached for distributed cache
+- ⬜ PostgreSQL for persistent call storage
+- ⬜ Managed vector DB (Pinecone / Weaviate)
+- ⬜ Async processing (FastAPI + Celery)
+- ⬜ Streaming LLM responses to UI
+- ⬜ Webhook / CRM integration
+- ⬜ Role-based access control
+- ⬜ Load balancing (multiple EC2 / ECS)
+- ⬜ Auto-scaling policies
+        """)
 
 
 # Footer

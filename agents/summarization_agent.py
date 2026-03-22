@@ -89,13 +89,14 @@ class SummarizationAgent:
             self.logger.error(f"Failed to import LLM: {e}")
             raise ValueError(f"LLM {llm_name} not available. Install required dependencies.")
 
-    def process(self, call_id: str, transcript: str) -> SummaryOutput:
+    def process(self, call_id: str, transcript: str, rag_context: str = "") -> SummaryOutput:
         """
-        Summarize a call transcript.
+        Summarize a call transcript, optionally enriched with RAG context.
 
         Args:
             call_id: Call identifier
             transcript: Call transcript text
+            rag_context: Formatted context from similar past calls (optional)
 
         Returns:
             SummaryOutput: Structured summary with key information
@@ -111,10 +112,11 @@ class SummarizationAgent:
             self.logger.info(f"[MOCK] Returning mock summary for {call_id}")
             return self._mock_summary(call_id, transcript)
 
-        self.logger.info(f"Summarizing call {call_id} with {self.llm_name}")
+        self.logger.info(f"Summarizing call {call_id} with {self.llm_name}" +
+                         (" [+RAG]" if rag_context else ""))
         start_time = time.time()
 
-        prompt = self._build_prompt(transcript)
+        prompt = self._build_prompt(transcript, rag_context)
 
         try:
             # Gemini function-calling rejects list[str] fields without explicit items;
@@ -324,18 +326,26 @@ class SummarizationAgent:
             resolution_status=resolution,
         )
 
-    def _build_prompt(self, transcript: str) -> str:
+    def _build_prompt(self, transcript: str, rag_context: str = "") -> str:
         """
-        Build the prompt for summarization.
+        Build the prompt for summarization, optionally including RAG context.
 
         Args:
             transcript: Call transcript
+            rag_context: Formatted similar-call context from vector store
 
         Returns:
             str: Formatted prompt
         """
-        return f"""Analyze the following call transcript and provide a structured summary.
+        context_block = ""
+        if rag_context:
+            context_block = (
+                f"\n\n{rag_context}\n\n"
+                "Use the similar past calls above to inform your analysis where relevant "
+                "(e.g. consistent resolution patterns, recurring issues, typical action items).\n"
+            )
 
+        return f"""Analyze the following call transcript and provide a structured summary.{context_block}
 TRANSCRIPT:
 {transcript}
 
