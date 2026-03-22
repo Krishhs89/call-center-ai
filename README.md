@@ -1,459 +1,369 @@
 # Call Center AI Assistant
 
-A production-quality AI-powered call center analysis system that processes customer service transcripts with multi-agent architecture, LangGraph orchestration, and multi-LLM benchmarking capabilities.
+A production-quality AI-powered call center analysis system built with **LangGraph multi-agent orchestration**, **17-node pipeline**, and **8 specialized AI agents**. Processes audio and text call transcripts end-to-end with compliance checking, coaching, RAG retrieval, and real-time escalation prediction.
 
-## Features
+**Live Demo:** http://52.55.75.19:8501 (AWS EC2)
+**GitHub:** https://github.com/Krishhs89/call-center-ai
 
-- **Multi-Agent Architecture**: Specialized agents for intake, transcription, summarization, and quality scoring
-- **Multi-LLM Support**: Compare Claude, GPT-4, and Google Gemini on the same transcripts
-- **Structured Output**: Pydantic-based schemas for reliable, validated data structures
-- **LangGraph Workflow**: Orchestrated workflow with conditional routing and error handling
-- **Streamlit UI**: Interactive dashboard with upload, analysis, and benchmarking tabs
-- **Quality Assessment**: Multi-dimensional scoring (empathy, professionalism, resolution, compliance)
-- **Production Ready**: Type hints, logging, error handling, and comprehensive documentation
+---
+
+## What It Does
+
+Upload a call recording (WAV) or paste a transcript → the system automatically:
+
+1. Transcribes audio via OpenAI Whisper
+2. Detects PII and redacts before any LLM sees it
+3. Retrieves similar past calls from ChromaDB (RAG)
+4. Checks relevant SOPs from the Knowledge Base
+5. Scores sentiment turn-by-turn
+6. Flags HIPAA / GDPR / PCI-DSS / TCPA compliance violations
+7. Predicts escalation risk in real-time
+8. Generates call summary + QA score (0–100)
+9. Tags the call across 5 classification taxonomies
+10. Produces personalised agent coaching with example scripts
+11. Detects anomalies vs historical call statistics
+12. Tracks whether coaching from previous calls was adopted
+
+---
+
+## Architecture — V3 (17-Node LangGraph Pipeline)
+
+```
+START
+  │
+  ├─[intake]              Validate input, extract metadata
+  ├─[customer_profile]    Load customer history, assign risk tier (zero LLM)
+  ├─[transcription]       Whisper audio → text / normalize transcript
+  ├─[pii_redaction]       Regex mask phone/email/SSN/card before LLM
+  ├─[rag_retrieval]       ChromaDB top-3 similar past calls
+  ├─[kb_retrieval]        Knowledge base SOP context injection
+  ├─[sentiment]           Turn-by-turn sentiment + escalation risk signal
+  ├─[compliance_check]    HIPAA/GDPR/PCI-DSS/TCPA violation scanner
+  ├─[escalation_prediction] Real-time supervisor alert (cross-agent signals)
+  ├─[summarization]       Summary, key points, action items, resolution status
+  ├─[auto_tagging]        Multi-label: category/intent/routing/product tags
+  ├─[quality_score]       0–100 QA score across 6 dimensions
+  ├─[call_coaching]       Personalised tips + example scripts per weak dimension
+  ├─[anomaly_detection]   Z-score vs history, flags outlier calls (zero LLM)
+  └─[end]                 Assemble CallResult → FeedbackLoop post-workflow
+```
+
+---
+
+## Agent Inventory (17 agents total)
+
+### Core Pipeline Agents
+| Agent | File | LLM | Purpose |
+|-------|------|-----|---------|
+| IntakeAgent | `agents/intake_agent.py` | No | Input validation, metadata extraction |
+| TranscriptionAgent | `agents/transcription_agent.py` | Whisper | Audio → text, speaker normalisation |
+| SummarizationAgent | `agents/summarization_agent.py` | Yes | Summary, key points, action items |
+| QualityScoreAgent | `agents/quality_score_agent.py` | Yes | 6-dimension QA scoring 0–100 |
+| RoutingAgent | `agents/routing_agent.py` | No | State transition logging |
+
+### V2 Agents
+| Agent | File | LLM | Purpose |
+|-------|------|-----|---------|
+| PIIRedactionAgent | `agents/pii_redaction_agent.py` | No | Regex mask before LLM |
+| RAGRetrievalAgent | `agents/rag_retrieval_agent.py` | Embeddings | ChromaDB top-3 similar calls |
+| SentimentAgent | `agents/sentiment_agent.py` | Yes | Turn sentiment + trend + escalation signal |
+
+### V3 Agents — Full AI Suite
+| Agent | File | LLM | Purpose |
+|-------|------|-----|---------|
+| ComplianceCheckerAgent | `agents/compliance_checker_agent.py` | Yes | HIPAA/GDPR/PCI-DSS/TCPA/Financial violations |
+| EscalationPredictionAgent | `agents/escalation_prediction_agent.py` | Yes | Risk score 0–100, trigger moments, recommended intervention |
+| CallCoachingAgent | `agents/call_coaching_agent.py` | Yes | Strengths, tips with example scripts, next_call_focus |
+| KnowledgeBaseAgent | `agents/knowledge_base_agent.py` | Yes | SOP compliance audit, missed knowledge opportunities |
+| CustomerProfileAgent | `agents/customer_profile_agent.py` | **No** | Risk tier (VIP/at_risk/churning/regular), history stats |
+| AutoTaggingAgent | `agents/auto_tagging_agent.py` | Yes | 5-taxonomy classification: category/intent/routing/product |
+| AnomalyDetectionAgent | `agents/anomaly_detection_agent.py` | **No** | Z-score vs history, anomaly score 0–100 |
+| FeedbackLoopAgent | `agents/feedback_loop_agent.py` | **No** | Tracks coaching adoption, score delta vs last 3 calls |
+
+**Zero-cost agents** (CustomerProfile, AnomalyDetection, FeedbackLoop) make no LLM calls — pure Python data processing against JSONL history.
+
+---
 
 ## Project Structure
 
 ```
 call_center_ai/
-├── agents/                          # Agent implementations
-│   ├── intake_agent.py             # Input validation and processing
-│   ├── transcription_agent.py       # Transcript normalization (Whisper support)
-│   ├── summarization_agent.py       # Call summarization with configurable LLM
-│   ├── quality_score_agent.py       # Multi-dimensional QA scoring
-│   └── routing_agent.py             # Workflow orchestration and routing
+├── agents/                          # 17 agent modules
+│   ├── intake_agent.py
+│   ├── transcription_agent.py
+│   ├── summarization_agent.py
+│   ├── quality_score_agent.py
+│   ├── routing_agent.py
+│   ├── pii_redaction_agent.py       # V2
+│   ├── rag_retrieval_agent.py       # V2
+│   ├── sentiment_agent.py           # V2
+│   ├── compliance_checker_agent.py  # V3
+│   ├── escalation_prediction_agent.py # V3
+│   ├── call_coaching_agent.py       # V3
+│   ├── knowledge_base_agent.py      # V3
+│   ├── customer_profile_agent.py    # V3 zero-cost
+│   ├── auto_tagging_agent.py        # V3
+│   ├── anomaly_detection_agent.py   # V3 zero-cost
+│   └── feedback_loop_agent.py       # V3 zero-cost
 ├── workflow/
-│   └── langgraph_flow.py           # LangGraph state machine and workflow
-├── evaluation/
-│   └── benchmark.py                 # Multi-LLM comparison benchmarking
+│   └── langgraph_flow.py            # 17-node LangGraph state machine
 ├── ui/
-│   └── streamlit_app.py            # Interactive dashboard
+│   └── streamlit_app.py             # Streamlit dashboard (8 tabs)
 ├── utils/
-│   └── schemas.py                   # Pydantic models and data structures
+│   ├── schemas.py                   # Pydantic models
+│   ├── cache.py                     # SHA-256 file cache
+│   ├── vector_store.py              # ChromaDB wrapper
+│   ├── memory.py                    # Conversation memory
+│   └── validation.py                # Input validation
 ├── config/
-│   └── settings.py                  # Configuration and environment variables
+│   └── settings.py                  # Environment config
+├── evaluation/
+│   └── benchmark.py                 # Multi-LLM comparison
+├── scripts/
+│   ├── generate_sample_audio.py     # Generate 6 test WAV files
+│   └── precache_all.py              # Pre-warm SHA-256 cache
+├── deploy/
+│   ├── cloudformation-ec2-python.yaml  # AWS EC2 no-docker deployment
+│   ├── cloudformation.yaml          # AWS Docker deployment
+│   ├── deploy-to-aws.sh             # Docker-based deploy script
+│   └── deploy-to-aws-nodcker.sh     # No-docker deploy script
 ├── data/
-│   └── sample_transcripts/          # Sample call transcripts (JSON)
+│   ├── sample_audio/                # 6 generated WAV test files
+│   └── sample_transcripts/          # 33 JSON call transcripts
+├── docs/
+│   └── session_log.md               # Full development session history
 ├── tests/
-│   └── test_agents.py              # Unit and integration tests
-├── requirements.txt                 # Python dependencies
-├── .env.example                     # Environment variable template
-└── README.md                        # This file
+│   └── test_agents.py               # Unit + integration tests
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+├── .env.example
+├── QUICKSTART.md
+├── PRODUCTION.md
+└── README.md
 ```
+
+---
 
 ## Installation
 
-### 1. Clone/Setup
+### 1. Clone the repo
 
 ```bash
-cd call_center_ai
+git clone https://github.com/Krishhs89/call-center-ai.git
+cd call-center-ai
 ```
 
-### 2. Create Virtual Environment
+### 2. Create virtual environment
 
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python3.11 -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
 ```
 
-### 3. Install Dependencies
+### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
+### 4. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and add your API keys:
+Edit `.env`:
 
 ```env
-ANTHROPIC_API_KEY=your_anthropic_key
-OPENAI_API_KEY=your_openai_key
-GOOGLE_API_KEY=your_google_key
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-proj-...
+GOOGLE_API_KEY=AIza...
 DEFAULT_LLM=claude
+CLAUDE_MODEL=claude-sonnet-4-5-20250929
+GPT4_MODEL=gpt-4o
+GEMINI_MODEL=gemini-2.5-flash-preview-04-17
+WHISPER_MODEL=whisper-1
+MOCK_LLM=false
 ```
 
-#### API Key Setup
+---
 
-**Anthropic (Claude):**
-- Go to https://console.anthropic.com/
-- Create an API key
-- Set `ANTHROPIC_API_KEY` in `.env`
+## Running the App
 
-**OpenAI (GPT-4 & Whisper):**
-- Go to https://platform.openai.com/api-keys
-- Create an API key
-- Set `OPENAI_API_KEY` in `.env`
-
-**Google (Gemini):**
-- Go to https://makersuite.google.com/app/apikey
-- Create an API key
-- Set `GOOGLE_API_KEY` in `.env`
-
-## Usage
-
-### Run Streamlit App
+### Production mode (real LLM calls)
 
 ```bash
-streamlit run ui/streamlit_app.py
+MOCK_LLM=false venv/bin/python -m streamlit run ui/streamlit_app.py --server.port 8501
 ```
 
-The app will open at `http://localhost:8501`
-
-### Use Cases
-
-#### 1. Upload and Analyze
-- Paste transcript text or upload JSON/text file
-- Click "Process Call"
-- View transcript, summary, and QA scores
-
-#### 2. View Results
-- See normalized transcript with speaker labels
-- Review auto-generated summary
-- Check key points and action items
-- View resolution status (resolved/unresolved/escalated)
-
-#### 3. Quality Assessment
-- View overall QA score (0-100)
-- See breakdown by dimension (empathy, professionalism, resolution, compliance)
-- Review agent strengths and improvement areas
-
-#### 4. Multi-LLM Benchmarking
-- Compare Claude, GPT-4, and Gemini simultaneously
-- Run summarization, QA scoring, or full benchmark
-- View timing comparisons and token usage
-- Identify fastest/best-performing model
-
-### Python API Usage
-
-```python
-from agents.intake_agent import IntakeAgent
-from workflow.langgraph_flow import create_workflow, run_workflow
-
-# Process intake
-intake = IntakeAgent()
-call_input = intake.process(transcript_text="Agent: Hello. Customer: Hi.")
-
-# Create and run workflow
-workflow = create_workflow(llm_name="claude")
-result = run_workflow(workflow, call_input)
-
-# Access results
-print(f"Summary: {result.summary.summary}")
-print(f"QA Score: {result.qa_score.overall_score}/100")
-```
-
-### Using Benchmark
-
-```python
-from evaluation.benchmark import BenchmarkRunner
-
-benchmark = BenchmarkRunner()
-result = benchmark.run_full_benchmark(
-    call_id="CALL_001",
-    transcript="Agent: ... Customer: ...",
-)
-
-# Compare results
-comparison = benchmark.compare_results(result)
-print(f"Fastest: {comparison['fastest_model']}")
-```
-
-## Dataset Integration (Week 1)
-
-### Option 1: Use Sample Transcripts
-
-Sample transcripts are included:
-- `sample_call_1.json` - Banking (fraud/billing issue)
-- `sample_call_2.json` - Telecom (billing error)
-- `sample_call_3.json` - Healthcare (appointment scheduling)
-
-Load them in the UI's sidebar or programmatically:
-
-```python
-import json
-with open('data/sample_transcripts/sample_call_1.json') as f:
-    data = json.load(f)
-    transcript = data['transcript']
-```
-
-### Option 2: Kaggle Datasets
-
-Download call center transcripts from Kaggle:
-
-1. Go to https://kaggle.com/datasets
-2. Search for "call center" or "customer service transcripts"
-3. Download datasets (CSV/JSON format)
-4. Convert to JSON format matching schema in `data/sample_transcripts/`
-5. Place in `data/` directory
-6. Load via upload tab
-
-**Expected format:**
-```json
-{
-  "call_id": "CALL_001",
-  "transcript": "Agent: ... Customer: ...",
-  "category": "billing",
-  "duration_seconds": 300,
-  "timestamp": "2024-01-01T00:00:00Z"
-}
-```
-
-## Running Tests
+### Mock mode (no API calls, instant responses)
 
 ```bash
-# All tests
-pytest tests/
-
-# Specific test file
-pytest tests/test_agents.py -v
-
-# With coverage
-pytest tests/ --cov=agents --cov=workflow --cov=evaluation
+venv/bin/python -m streamlit run ui/streamlit_app.py --server.port 8501
 ```
 
-**Note:** Some tests require API keys. Tests will be skipped if keys are unavailable.
+Opens at `http://localhost:8501`
 
-## Architecture
+---
 
-### Data Flow
+## Sample Audio Files
 
-```
-User Input (Transcript/File)
-    ↓
-[IntakeAgent] - Validate & extract metadata
-    ↓
-[TranscriptionAgent] - Normalize speaker labels
-    ↓
-[SummarizationAgent] - Extract summary, key points, action items
-    ↓
-[QualityScoreAgent] - Score on 4 dimensions
-    ↓
-CallResult (combined output)
-```
-
-### LangGraph Workflow
-
-The workflow uses conditional routing:
-
-```
-START
-  ↓
-[intake_node]
-  ↓
-[transcription_node]
-  ├─→ (if error) [error_handler]
-  │              ↓ (resume)
-  ├─→ (if success) [summarization_node]
-  └─────────────→ [quality_score_node]
-                    ↓
-                   [end_node]
-                    ↓
-                   END
-```
-
-### Agents
-
-**IntakeAgent**
-- Validates input format (text/JSON)
-- Extracts metadata (call_id, category, duration)
-- Handles both plain text and structured files
-
-**TranscriptionAgent**
-- Integrates OpenAI Whisper for audio (if provided)
-- Normalizes speaker labels to "Agent" and "Customer"
-- Handles multiple speaker formats
-
-**SummarizationAgent**
-- Uses configurable LLM (Claude/GPT-4/Gemini)
-- Structured output via function calling
-- Extracts: summary, key points, action items, resolution status
-
-**QualityScoreAgent**
-- Scores on 4 dimensions (0-25 each, total 0-100)
-- Provides strengths and improvement suggestions
-- Uses structured output for reliable scoring
-
-**RoutingAgent**
-- Manages state transitions
-- Logs workflow progress for debugging/monitoring
-- Handles error recovery
-
-## Configuration
-
-### Environment Variables
-
-See `.env.example` for all options:
-
-| Variable | Purpose |
-|----------|---------|
-| `ANTHROPIC_API_KEY` | Claude API key |
-| `OPENAI_API_KEY` | GPT-4 and Whisper API key |
-| `GOOGLE_API_KEY` | Gemini API key |
-| `DEFAULT_LLM` | Default model (claude/gpt4/gemini) |
-| `LANGCHAIN_TRACING_V2` | Enable LangSmith tracing (optional) |
-| `LANGCHAIN_API_KEY` | LangSmith API key (optional) |
-
-### Settings
-
-Modify in `config/settings.py`:
-
-```python
-settings.CLAUDE_MODEL = "claude-3-5-sonnet-20241022"
-settings.GPT4_MODEL = "gpt-4-turbo"
-settings.GEMINI_MODEL = "gemini-2.0-flash"
-settings.WHISPER_MODEL = "whisper-1"
-```
-
-## LangSmith Integration (Optional)
-
-Enable LangSmith tracing for monitoring:
+Generate 6 test WAV files (requires `gtts`, `pydub`, `ffmpeg`):
 
 ```bash
-# In .env
+venv/bin/python scripts/generate_sample_audio.py
+```
+
+Files created in `data/sample_audio/`:
+
+| File | Tests |
+|------|-------|
+| `sample_audio_billing.wav` | AutoTagging=billing, Compliance=Financial, CustomerProfile |
+| `sample_audio_escalation.wav` | EscalationPrediction=critical, Sentiment=negative |
+| `sample_audio_tech_support.wav` | KB articles, AutoTagging=technical |
+| `sample_audio_fraud.wav` | AutoTagging=fraud_security, Compliance=Financial |
+| `sample_audio_complaint.wav` | Compliance violation (no recording consent), Anomaly |
+| `sample_audio_account.wav` | KB=account verification, AutoTagging=account_management |
+
+Use the sidebar "Sample Audio" panel in the UI to load and auto-transcribe any file.
+
+---
+
+## UI Tabs
+
+| Tab | Content |
+|-----|---------|
+| Upload | Paste text, upload JSON/WAV, or load sample audio |
+| Results | All 8 V3 agent panels: profile, tags, KB, coaching, anomaly, feedback |
+| QA Score | 6-dimension radar chart, strengths, improvement areas |
+| Benchmark | Run all 3 LLMs in parallel, compare timing/quality |
+| Call History | All past calls with search + filter |
+| Workflow | Live LangGraph diagram (17 nodes) |
+| Architecture | Full system architecture diagram |
+
+---
+
+## Multi-LLM Support
+
+| Model | Provider | Default |
+|-------|----------|---------|
+| `claude-sonnet-4-5-20250929` | Anthropic | Yes |
+| `gpt-4o` | OpenAI | No |
+| `gemini-2.5-flash-preview-04-17` | Google | No |
+
+Switch via `DEFAULT_LLM=claude|gpt4|gemini` in `.env` or the UI dropdown.
+
+---
+
+## Caching
+
+SHA-256 content-based cache at `data/cache/`. Identical transcripts return instantly from cache — no LLM call made. Cache hit shown with green indicator in UI.
+
+Pre-warm all sample transcripts:
+```bash
+venv/bin/python scripts/precache_all.py
+```
+
+---
+
+## LangSmith Tracing (Optional)
+
+```env
 LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=your_langsmith_key
+LANGCHAIN_API_KEY=lsv2_pt_...
 LANGCHAIN_PROJECT=call-center-ai
 ```
 
-All workflow transitions are logged with LangSmith-compatible format:
+---
+
+## AWS Deployment
+
+### CloudFormation (no Docker)
+
+```bash
+# Store API keys in SSM first
+aws ssm put-parameter --name /call-center-ai/ANTHROPIC_API_KEY \
+  --value "sk-ant-..." --type SecureString
+
+# Deploy stack
+aws cloudformation create-stack \
+  --stack-name call-center-ai \
+  --template-body file://deploy/cloudformation-ec2-python.yaml \
+  --parameters \
+    ParameterKey=InstanceType,ParameterValue=t2.medium \
+    ParameterKey=KeyPairName,ParameterValue=your-key-pair \
+    ParameterKey=DefaultLLM,ParameterValue=claude \
+  --capabilities CAPABILITY_NAMED_IAM
 ```
-[ROUTE] Call CALL_001: intake -> transcription
-[NODE] transcription: Processing call CALL_001
-[STATE_TRANSITION] CALL_001: transcription -> summarization
+
+Stack outputs: `AppURL` (Streamlit URL), `PublicIP`, `SSHCommand`.
+
+See `PRODUCTION.md` for full setup guide.
+
+---
+
+## Docker
+
+```bash
+docker-compose up --build
 ```
 
-## Benchmarking
+App available at `http://localhost:8501`.
 
-### Benchmark Types
+---
 
-1. **Summarization**: Compare summary quality and timing
-2. **QA Scoring**: Compare scoring consistency
-3. **Full Benchmark**: Complete pipeline for all models
+## Testing
 
-### Results
+```bash
+# All tests
+pytest tests/ -v
 
-Benchmark results include:
-- Processing time per model
-- Estimated token counts
-- Direct output comparison
-- Error handling/fallbacks
+# With coverage
+pytest tests/ --cov=agents --cov=workflow
 
-```python
-result = benchmark.run_full_benchmark("CALL_001", transcript)
-print(result.timing)           # {'claude': 1.5, 'gpt4': 2.1, 'gemini': 1.8}
-print(result.token_counts)     # Token usage per model
-print(result.claude_qa)        # Claude QA score
+# Mock mode (no API keys needed)
+MOCK_LLM=true pytest tests/ -v
 ```
+
+---
 
 ## Troubleshooting
 
-### API Key Issues
+| Error | Solution |
+|-------|----------|
+| `No API keys found` | Check `.env` has at least one key |
+| `ImportError: langgraph` | `pip install -r requirements.txt` |
+| `Whisper failed` | Needs `OPENAI_API_KEY`; system falls back gracefully |
+| `chromadb` errors | `pip install chromadb==1.5.5` |
+| Port in use | `--server.port 8502` |
 
-```
-ValueError: No API keys found
-```
-Solution: Ensure `.env` file exists with at least one API key set.
+---
 
-### LangChain/LangGraph Import Errors
+## Version History
 
-```
-ImportError: No module named 'langgraph'
-```
-Solution: `pip install langgraph>=0.0.23`
+| Version | Pipeline | Agents | Key Features |
+|---------|----------|--------|--------------|
+| V1 | 5 nodes | 4 | Intake, Transcription, Summarization, QA Score |
+| V2 | 9 nodes | 7 | + PII Redaction, RAG (ChromaDB), Sentiment |
+| V3 | 17 nodes | 15 | + Compliance, Escalation, Coaching, KB, CustomerProfile, AutoTagging, Anomaly, FeedbackLoop |
 
-### Whisper Transcription Failed
+---
 
-```
-Whisper transcription failed: ...
-```
-Solution: Ensure OpenAI API key is set. Whisper is optional; system will skip with warning.
+## Tech Stack
 
-### LLM Model Not Available
+- **Orchestration**: LangGraph (StateGraph, 17 nodes)
+- **LLMs**: Claude Sonnet 4.5, GPT-4o, Gemini 2.5 Flash
+- **Audio**: OpenAI Whisper
+- **Vector DB**: ChromaDB 1.5.5
+- **Embeddings**: OpenAI text-embedding-3-small
+- **UI**: Streamlit
+- **Schemas**: Pydantic v2
+- **Cache**: SHA-256 file cache
+- **Tracing**: LangSmith
+- **Deployment**: AWS EC2 (CloudFormation), Streamlit Cloud, Docker
 
-```
-ValueError: OPENAI_API_KEY not configured
-```
-Solution: Set required API keys in `.env` for the model you want to use.
-
-### Streamlit Port Already in Use
-
-```
-streamlit run ui/streamlit_app.py --server.port 8502
-```
-
-## Performance Notes
-
-- **Claude**: Generally fastest, excellent summarization quality
-- **GPT-4**: More detailed analysis, longer processing time
-- **Gemini**: Good balance of speed and quality
-- **Parallel Benchmarking**: Full benchmark runs ~3 threads simultaneously
-
-Typical processing time per call:
-- Summarization: 1-3 seconds per model
-- QA Scoring: 1-3 seconds per model
-- Full Benchmark: 3-10 seconds total (parallel)
-
-## Production Deployment
-
-### Docker
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-ENV PYTHONUNBUFFERED=1
-
-CMD ["streamlit", "run", "ui/streamlit_app.py"]
-```
-
-### API Endpoint
-
-Wrap workflow in FastAPI:
-
-```python
-from fastapi import FastAPI
-from workflow.langgraph_flow import create_workflow, run_workflow
-
-app = FastAPI()
-workflow = create_workflow()
-
-@app.post("/analyze")
-def analyze_call(transcript: str, call_id: str):
-    # Process and return result
-    pass
-```
-
-## Capstone Checklist
-
-- ✓ Multi-agent architecture with specialized agents
-- ✓ LangGraph orchestration with conditional routing
-- ✓ Structured output with Pydantic validation
-- ✓ Multi-LLM support (Claude, GPT-4, Gemini)
-- ✓ Benchmark comparison functionality
-- ✓ Interactive Streamlit UI
-- ✓ Sample transcripts for Week 1
-- ✓ Error handling and fallbacks
-- ✓ Production-quality code (type hints, logging, docstrings)
-- ✓ Comprehensive testing
-- ✓ Complete documentation
-
-## Support & Resources
-
-- LangChain Docs: https://python.langchain.com/
-- LangGraph Docs: https://langchain-ai.github.io/langgraph/
-- Streamlit Docs: https://docs.streamlit.io/
-- Anthropic Docs: https://docs.anthropic.com/
-- OpenAI Docs: https://platform.openai.com/docs/
-- Google Gemini: https://ai.google.dev/
+---
 
 ## License
 
@@ -461,8 +371,8 @@ MIT License
 
 ## Authors
 
-Built as a comprehensive capstone project demonstrating AI/ML engineering best practices.
+Built as a capstone project demonstrating production-quality Agentic AI engineering.
 
 ---
 
-**Ready to analyze customer service calls with AI! Start with `streamlit run ui/streamlit_app.py`**
+**Start with:** `MOCK_LLM=false venv/bin/python -m streamlit run ui/streamlit_app.py`

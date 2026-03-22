@@ -1,460 +1,417 @@
 ================================================================================
-CALL CENTER AI ASSISTANT - COMPLETE FILE MANIFEST
+CALL CENTER AI ASSISTANT — FILE MANIFEST (Version 3)
 ================================================================================
-Generated: 2024-03-15
-Total Files: 26
-Location: /sessions/quirky-hopeful-dirac/mnt/Slide decks & Project Resources/call_center_ai/
+Generated: 2026-03-22
+Version: V3 — Full AI Agent Suite (17-node LangGraph pipeline)
+GitHub:  https://github.com/Krishhs89/call-center-ai
+Live:    http://52.55.75.19:8501
 
 ================================================================================
 PROJECT STRUCTURE
 ================================================================================
 
 call_center_ai/
-├── README.md                              (12.2 KB) - Complete documentation
-├── QUICKSTART.md                          (3.2 KB) - Quick start guide
-├── .env.example                           (516 B)  - Environment template
-├── requirements.txt                       (513 B)  - Python dependencies
-├── FILE_MANIFEST.txt                      (This file)
 │
-├── agents/                                (5 agent modules)
+├── README.md                              — Full project documentation (V3)
+├── QUICKSTART.md                          — 5-minute setup guide
+├── PRODUCTION.md                          — Full AWS + local production setup
+├── FILE_MANIFEST.txt                      — This file
+├── .env.example                           — Environment variable template
+├── requirements.txt                       — Python dependencies
+├── Dockerfile                             — Docker container definition
+├── docker-compose.yml                     — Docker Compose config
+│
+├── agents/                                (17 agent modules)
 │   ├── __init__.py
-│   ├── intake_agent.py                    (8.5 KB)  - Input validation
-│   ├── transcription_agent.py             (8.2 KB)  - Transcript normalization
-│   ├── summarization_agent.py             (8.1 KB)  - Call summarization
-│   ├── quality_score_agent.py             (8.3 KB)  - QA scoring
-│   └── routing_agent.py                   (6.8 KB)  - Workflow orchestration
+│   │
+│   │   ── Core (V1) ──────────────────────────────────────────────────────────
+│   ├── intake_agent.py                    Input validation & metadata extraction
+│   ├── transcription_agent.py             Whisper audio->text + speaker normalise
+│   ├── summarization_agent.py             LLM summary, key points, action items
+│   ├── quality_score_agent.py             6-dimension QA scoring (0-100)
+│   ├── routing_agent.py                   State transition logging
+│   │
+│   │   ── V2 ─────────────────────────────────────────────────────────────────
+│   ├── pii_redaction_agent.py             Regex mask phone/email/SSN/card before LLM
+│   ├── rag_retrieval_agent.py             ChromaDB top-3 similar past calls
+│   ├── sentiment_agent.py                 Turn-by-turn sentiment + escalation signal
+│   │
+│   │   ── V3 Full AI Suite ──────────────────────────────────────────────────
+│   ├── compliance_checker_agent.py        HIPAA/GDPR/PCI-DSS/TCPA violation scanner
+│   ├── escalation_prediction_agent.py     Risk score 0-100, supervisor alert
+│   ├── call_coaching_agent.py             Personalised tips + example scripts
+│   ├── knowledge_base_agent.py            SOP compliance audit, KB articles
+│   ├── customer_profile_agent.py          Risk tier, history stats (zero LLM)
+│   ├── auto_tagging_agent.py              5-taxonomy multi-label classification
+│   ├── anomaly_detection_agent.py         Z-score vs history (zero LLM)
+│   └── feedback_loop_agent.py             Coaching adoption tracking (zero LLM)
 │
-├── workflow/                              (LangGraph implementation)
+├── workflow/
 │   ├── __init__.py
-│   └── langgraph_flow.py                  (11.2 KB) - State machine & workflow
+│   └── langgraph_flow.py                  17-node LangGraph StateGraph (V3)
 │
-├── evaluation/                            (Benchmarking)
+├── ui/
+│   └── streamlit_app.py                   Streamlit dashboard — 7 tabs, V3 panels
+│
+├── utils/
 │   ├── __init__.py
-│   └── benchmark.py                       (14.5 KB) - Multi-LLM comparison
+│   ├── schemas.py                         Pydantic models for all agent I/O
+│   ├── cache.py                           SHA-256 file-based result cache
+│   ├── vector_store.py                    ChromaDB wrapper (store/retrieve/stats)
+│   ├── memory.py                          Conversation memory utilities
+│   └── validation.py                      Input validation helpers
 │
-├── ui/                                    (Streamlit interface)
-│   └── streamlit_app.py                   (22.3 KB) - Interactive dashboard
+├── config/
+│   └── settings.py                        Env config, API keys, model names
 │
-├── utils/                                 (Data structures)
+├── evaluation/
 │   ├── __init__.py
-│   └── schemas.py                         (12.8 KB) - Pydantic models
+│   └── benchmark.py                       Multi-LLM parallel comparison
 │
-├── config/                                (Configuration)
-│   └── settings.py                        (5.3 KB)  - Environment settings
+├── scripts/
+│   ├── generate_sample_audio.py           Generate 6 test WAV files via gTTS
+│   └── precache_all.py                    Pre-warm SHA-256 cache
 │
-├── data/                                  (Datasets)
-│   └── sample_transcripts/
-│       ├── sample_call_1.json             (2.4 KB)  - Banking (resolved)
-│       ├── sample_call_2.json             (2.8 KB)  - Telecom (escalated)
-│       └── sample_call_3.json             (2.9 KB)  - Healthcare (resolved)
+├── deploy/
+│   ├── cloudformation-ec2-python.yaml     AWS EC2 no-docker deploy (WORKING)
+│   ├── cloudformation.yaml                AWS Docker-based deploy
+│   ├── deploy-to-aws.sh                   Docker deploy helper script
+│   └── deploy-to-aws-nodcker.sh           No-docker deploy helper script
 │
-└── tests/                                 (Unit & integration tests)
-    ├── __init__.py
-    └── test_agents.py                     (15.2 KB) - Comprehensive tests
+├── data/
+│   ├── sample_audio/                      6 WAV test files (gitignored -- generate locally)
+│   │   ├── sample_audio_billing.wav       Billing dispute (76s)
+│   │   ├── sample_audio_escalation.wav    Angry customer escalation (68s)
+│   │   ├── sample_audio_tech_support.wav  App not working (76s)
+│   │   ├── sample_audio_fraud.wav         Fraud report (86s)
+│   │   ├── sample_audio_complaint.wav     Billing complaint (79s)
+│   │   └── sample_audio_account.wav       Password reset (93s)
+│   │
+│   └── sample_transcripts/                33 JSON call transcripts
+│       ├── sample_call_1.json ... _13.json   General samples
+│       └── call_recording_01.json ... _20.json  Dataset samples
+│
+├── docs/
+│   └── session_log.md                     Full development history (5 sessions)
+│
+├── tests/
+│   ├── __init__.py
+│   └── test_agents.py                     Unit + integration tests
+│
+└── .devcontainer/
+    └── devcontainer.json                  VS Code Dev Container config
 
 ================================================================================
-KEY FILES DESCRIPTION
+AGENT DETAILS
 ================================================================================
 
-AGENTS (5 files):
-─────────────────
+CORE AGENTS (V1):
+-----------------
 intake_agent.py
-  • Validates and processes input calls
-  • Extracts metadata from JSON or text files
-  • Handles CallInput creation with Pydantic
-  • Methods: process(), _process_file(), _generate_call_id()
+  - Validates and processes input calls (text, JSON, audio path)
+  - Extracts metadata: call_id, category, duration, timestamp
+  - Creates CallInput with Pydantic
 
 transcription_agent.py
-  • Integrates OpenAI Whisper API (optional)
-  • Normalizes speaker labels to Agent/Customer
-  • Handles multiple speaker formats
-  • Fallback to raw text if Whisper unavailable
-  • Methods: process(), _transcribe_audio(), _normalize_transcript()
+  - OpenAI Whisper for audio files (WAV/MP3)
+  - Normalises speaker labels -> "Agent" / "Customer"
+  - Fallback to raw text if Whisper unavailable
 
 summarization_agent.py
-  • Uses configurable LLM (Claude/GPT-4/Gemini)
-  • Extracts: summary, key_points, action_items, customer_issue, resolution_status
-  • Uses structured output with function calling
-  • Default: Claude 3.5 Sonnet
-  • Methods: process(), _build_prompt()
+  - Configurable LLM (Claude/GPT-4/Gemini)
+  - Structured output: summary, key_points, action_items, resolution_status
+  - Temperature: 0.3
 
 quality_score_agent.py
-  • Multi-dimensional QA scoring (0-100 total)
-  • Scores: empathy(0-25), professionalism(0-25), resolution(0-25), compliance(0-25)
-  • Provides strengths and improvement suggestions
-  • Uses structured output for reliable scoring
-  • Methods: process(), _build_prompt(), validate_scores()
+  - 6-dimension scoring: empathy, professionalism, resolution,
+    compliance, communication, efficiency
+  - Overall score 0-100; strengths + improvement suggestions
+  - Temperature: 0.2
 
 routing_agent.py
-  • Manages state transitions and routing logic
-  • Handles error recovery and fallbacks
-  • Logs workflow progress (LangSmith-compatible)
-  • Methods: route_intake(), route_transcription(), route_summarization(), etc.
+  - State transition logging (LangSmith-compatible)
+  - Error recovery routing
 
-WORKFLOW (1 file):
-──────────────────
-langgraph_flow.py
-  • Implements LangGraph state machine
-  • StateGraph with 6 nodes (intake, transcription, summarization, quality_score, error_handler, end)
-  • Conditional edges based on state
-  • run_workflow() executes complete pipeline
-  • 100+ lines of orchestration logic
 
-EVALUATION (1 file):
-────────────────────
-benchmark.py
-  • Multi-LLM comparison (Claude vs GPT-4 vs Gemini)
-  • Parallel execution with concurrent.futures
-  • Methods: run_summarization_benchmark(), run_qa_benchmark(), run_full_benchmark()
-  • Returns: timing, token counts, error tracking
-  • Comparison utility: compare_results()
+V2 AGENTS:
+----------
+pii_redaction_agent.py
+  - Zero LLM cost -- pure regex
+  - Masks: phone, email, SSN, credit card, dates of birth, ZIP codes
+  - Returns redacted transcript + PII audit log
 
-UI (1 file):
-────────────
-streamlit_app.py
-  • 4 main tabs: Upload, Results, QA Score, Benchmark
-  • Interactive file upload (JSON/text)
-  • Live results display with charts/metrics
-  • Sample transcript loader in sidebar
-  • Multi-LLM comparison visualization
-  • 450+ lines of production-quality Streamlit code
+rag_retrieval_agent.py
+  - ChromaDB vector search (OpenAI text-embedding-3-small)
+  - Returns top-3 most similar past calls with similarity scores
+  - Embeds PII-redacted transcripts only
 
-UTILS (1 file):
-───────────────
-schemas.py
-  • 7 Pydantic models for type safety
-  • CallInput: Input data structure
-  • TranscriptOutput: Normalized transcript
-  • SummaryOutput: Call summary with resolution status
-  • QAScore: Multi-dimensional assessment
-  • CallResult: Combined final output
-  • BenchmarkResult: Multi-LLM comparison results
-  • ResolutionStatus: Enum for resolution state
+sentiment_agent.py
+  - Turn-by-turn sentiment analysis
+  - Overall sentiment trend, escalation_risk score
+  - Agent tone classification
+  - Temperature: 0.2
 
-CONFIG (1 file):
-────────────────
-settings.py
-  • Loads environment variables from .env
-  • Validates API keys
-  • Model configuration (Claude, GPT-4, Gemini)
-  • Settings class with get_llm_config() method
-  • Support for LangSmith tracing (optional)
 
-TESTS (1 file):
-───────────────
-test_agents.py
-  • 30+ test cases covering:
-    - IntakeAgent (5 tests)
-    - TranscriptionAgent (4 tests)
-    - SummarizationAgent (2 tests)
-    - QualityScoreAgent (3 tests)
-    - Schema validation (4 tests)
-    - Integration tests (2 tests)
-  • Pytest fixtures and parametrization
-  • Mocking support for LLM calls
-  • 300+ lines of comprehensive testing
+V3 AGENTS:
+----------
+compliance_checker_agent.py
+  - 6 compliance frameworks: HIPAA, GDPR, PCI-DSS, TCPA, Financial, General
+  - Output: violations (severity + evidence + remediation), compliance_score 0-100
+  - requires_immediate_review flag
+  - Mock: pattern-based (CVV, recording consent, identity verification keywords)
 
-DATA (3 sample files):
-──────────────────────
-sample_call_1.json (Banking)
-  • Call ID: CALL_2024_001
-  • Category: Banking fraud/billing
-  • Duration: 450 seconds
-  • Status: RESOLVED
-  • Content: Customer calls about unauthorized $50 charge
+escalation_prediction_agent.py
+  - Cross-agent signals: sentiment + compliance
+  - risk_score 0-100, risk_level (low/medium/high/critical)
+  - trigger_moments list, recommended_intervention
+  - Temperature: 0.3
 
-sample_call_2.json (Telecom)
-  • Call ID: CALL_2024_002
-  • Category: Telecom billing error
-  • Duration: 720 seconds
-  • Status: ESCALATED
-  • Content: Customer upset about billing errors across 2 months
+call_coaching_agent.py
+  - Tied to weakest QA dimension_scores
+  - Output: agent_strengths, coaching_tips (each with example_script),
+    next_call_focus, estimated_improvement, overall_coaching_priority
+  - Temperature: 0.4
 
-sample_call_3.json (Healthcare)
-  • Call ID: CALL_2024_003
-  • Category: Healthcare appointment
-  • Duration: 300 seconds
-  • Status: RESOLVED
-  • Content: Customer scheduling annual checkup appointment
+knowledge_base_agent.py
+  - Dual mode: retrieve_context() for prompt injection + process() for SOP audit
+  - 7 built-in KB articles: refund, verification, escalation, billing,
+    tech support, recording consent, shipping
+  - Output: relevant_articles, sop_compliance_score, missed_knowledge_opportunities
+  - Temperature: 0.1
 
-DOCUMENTATION (3 files):
-────────────────────────
-README.md (12.2 KB)
-  • Complete project documentation
-  • Installation & setup instructions
-  • API usage examples
-  • Architecture overview
-  • LangSmith integration guide
-  • Production deployment tips
-  • Troubleshooting section
-  • Performance notes
+customer_profile_agent.py
+  - ZERO LLM COST -- pure JSONL history aggregation
+  - Risk tiers: vip / at_risk / churning / regular
+  - Output: total_calls, avg_qa_score, escalation_count, sentiment_trend,
+    risk_tier, top_issues, is_first_call
 
-QUICKSTART.md (3.2 KB)
-  • 5-minute setup guide
-  • Common issues and solutions
-  • Feature overview
-  • Quick examples
-  • File upload formats
+auto_tagging_agent.py
+  - 5-taxonomy multi-label classification
+  - Output: primary_category, sub_category, intent_tags, sentiment_tags,
+    routing_tags, product_tags, confidence_score
+  - Temperature: 0.1
 
-.env.example (516 B)
-  • Environment variable template
-  • All configuration options documented
-  • API key placeholders
-  • Model selection options
+anomaly_detection_agent.py
+  - ZERO LLM COST -- statistical z-score + rule-based thresholds
+  - Flags: low_qa_score, critical_compliance, multiple_violations,
+    high_escalation_risk, extreme_sentiment, excessive_pii
+  - Output: anomaly_score 0-100, anomaly_level, flags, requires_review
 
-requirements.txt (513 B)
-  • All Python dependencies listed
-  • Version specifications
-  • Optional packages (ragas, pytest)
-  • 20+ total packages
+feedback_loop_agent.py
+  - ZERO LLM COST -- compares current vs last 3 calls from JSONL
+  - Output: improvement_status (significantly_improved/improved/stable/declined),
+    score_delta, coaching_adoption_rate, improved_dimensions, regressed_dimensions
+
 
 ================================================================================
-CODE STATISTICS
+WORKFLOW -- langgraph_flow.py
 ================================================================================
 
-Total Lines of Code (Python): ~3,200 lines
-  • Agents: ~800 lines
-  • Workflow: ~400 lines
-  • Evaluation: ~350 lines
-  • UI: ~450 lines
-  • Utils/Config: ~400 lines
-  • Tests: ~300 lines
+Pipeline (17 nodes + error branch):
 
-Production Quality:
-  ✓ Type hints throughout (95%+ coverage)
-  ✓ Comprehensive docstrings (every class/method)
-  ✓ Error handling (try-catch with logging)
-  ✓ Logging (structured logging with loggers)
-  ✓ Pydantic validation (all data structures)
-  ✓ Configuration management (environment-based)
-  ✓ Testing (30+ test cases)
-  ✓ Documentation (README + QUICKSTART + docstrings)
+  intake -> customer_profile -> transcription -> pii_redaction -> rag_retrieval
+         -> kb_retrieval -> sentiment -> compliance_check -> escalation_prediction
+         -> summarization -> auto_tagging -> quality_score -> call_coaching
+         -> anomaly_detection -> end
 
-================================================================================
-DEPENDENCIES (from requirements.txt)
-================================================================================
+  Post-workflow: FeedbackLoopAgent runs after CallResult assembled
 
-Core AI/ML Framework:
-  • langchain >= 0.1.0
-  • langchain-core >= 0.1.0
-  • langchain-anthropic >= 0.1.0
-  • langchain-openai >= 0.1.0
-  • langchain-google-genai >= 0.1.0
-  • langgraph >= 0.0.23
+State: WorkflowState (TypedDict) carries 20+ fields through the graph
 
-API Clients:
-  • anthropic >= 0.25.0
-  • openai >= 1.3.0
-  • google-generativeai >= 0.3.0
+_v2_extras dict carries 13 keys to UI:
+  sentiment_analysis, pii_audit, rag_context, customer_profile,
+  kb_context, kb_analysis, compliance_check, escalation_prediction,
+  tags, coaching, anomaly, feedback_loop, rag_used
 
-Data Processing:
-  • pydantic >= 2.0.0
-  • python-dotenv >= 1.0.0
-
-UI Framework:
-  • streamlit >= 1.28.0
-
-Utilities:
-  • tiktoken >= 0.5.0
-  • requests >= 2.31.0
-
-Optional:
-  • ragas >= 0.0.80 (evaluation metrics)
-  • pytest >= 7.4.0 (testing)
-  • black >= 23.0.0 (code formatting)
 
 ================================================================================
-FEATURES IMPLEMENTED
+UI -- streamlit_app.py
 ================================================================================
 
-✓ Multi-Agent Architecture
-  - Intake agent (validation)
-  - Transcription agent (normalization + Whisper)
-  - Summarization agent (LLM-based)
-  - Quality score agent (multi-dimensional)
-  - Routing agent (orchestration)
+Tabs:
+  1. Upload        -- Text/JSON/WAV upload, sample audio sidebar
+  2. Results       -- All V3 agent panels (8 collapsible sections)
+  3. QA Score      -- 6-dimension chart, strengths, improvement areas
+  4. Benchmark     -- Multi-LLM parallel comparison
+  5. Call History  -- Past calls (JSONL), search + filter
+  6. Workflow      -- Live LangGraph graphviz diagram (17 nodes)
+  7. Architecture  -- Full system diagram, version history, tech stack
 
-✓ LangGraph Workflow
-  - StateGraph with 6 nodes
-  - Conditional routing
-  - Error handling & recovery
-  - LangSmith-compatible logging
+V3 Result panels:
+  - Customer Profile (risk tier, history stats, top issues)
+  - Auto Tags (primary category, intent, routing, product tags)
+  - Knowledge Base (SOP compliance %, article cards, training recs)
+  - Call Coaching (strengths, prioritised tips + example scripts)
+  - Anomaly Detection (flags, z-score context)
+  - Feedback Loop (score delta, dimension improvement, coaching adoption)
+  - V3 Processing Details (PII audit, RAG context, KB context)
 
-✓ Multi-LLM Support
-  - Claude 3.5 Sonnet (default)
-  - OpenAI GPT-4 Turbo
-  - Google Gemini 2.0 Flash
-  - Switchable via configuration
-
-✓ Benchmark Framework
-  - Parallel multi-LLM execution
-  - Timing comparison
-  - Token count tracking
-  - Result comparison utilities
-
-✓ Structured Output
-  - 7 Pydantic models
-  - Type-safe data handling
-  - Validation on all inputs
-  - Serializable to JSON
-
-✓ Streamlit UI
-  - 4 interactive tabs
-  - File upload support
-  - Sample transcript loader
-  - Real-time results display
-  - Visual scoring cards
-  - Benchmark comparison view
-
-✓ Production Ready
-  - Type hints (100% coverage)
-  - Error handling (all agents)
-  - Logging (structured)
-  - Configuration management
-  - Comprehensive testing
-  - Full documentation
 
 ================================================================================
-SAMPLE DATA HIGHLIGHTS
+DEPLOYMENT
 ================================================================================
 
-Sample Call 1 (Banking):
-  - Agent: Emma (supportive, problem-solving)
-  - Issue: Fraudulent $50 charge
-  - Resolution: Immediate dispute filing, refund, new card issued
-  - Key strengths: Empathy, clear communication
-  - Likely score: 85-95/100
+AWS EC2 (deployed -- CloudFormation):
+  Stack: call-center-ai (us-east-1)
+  URL:   http://52.55.75.19:8501
+  Type:  t2.medium, Amazon Linux 2023
+  Keys:  SSM Parameter Store at /call-center-ai/*
 
-Sample Call 2 (Telecom):
-  - Agent: James (professional but slightly pushy)
-  - Issue: Billing errors over 2 months ($177 total)
-  - Resolution: Refund issued, escalation required
-  - Key weaknesses: Upsell attempt during problem resolution
-  - Likely score: 70-80/100
+Streamlit Cloud:
+  Auto-deployed from GitHub master push
 
-Sample Call 3 (Healthcare):
-  - Agent: Sarah (efficient, comprehensive)
-  - Issue: Appointment scheduling with bloodwork request
-  - Resolution: Appointment booked, nursing follow-up scheduled
-  - Key strengths: Clear instructions, handling special requests
-  - Likely score: 85-95/100
+Local:
+  MOCK_LLM=false venv/bin/python -m streamlit run ui/streamlit_app.py
+
 
 ================================================================================
-USAGE QUICKSTART
+DATA STORAGE (gitignored -- generated at runtime)
 ================================================================================
 
-1. Setup:
-   $ python -m venv venv
-   $ source venv/bin/activate
-   $ pip install -r requirements.txt
+data/cache/              SHA-256 JSON cache (one file per unique transcript)
+data/call_history.jsonl  All processed calls (append-only)
+data/vector_db/          ChromaDB persistent store
+data/sample_audio/       WAV files (generate via scripts/generate_sample_audio.py)
 
-2. Configure:
-   $ cp .env.example .env
-   $ # Add your API keys to .env
-
-3. Run:
-   $ streamlit run ui/streamlit_app.py
-
-4. Test with sample:
-   - Load "Banking Sample" from sidebar
-   - Click "Process Call"
-   - View results in each tab
 
 ================================================================================
-API USAGE EXAMPLE
+CODE STATISTICS (V3)
 ================================================================================
 
-from agents.intake_agent import IntakeAgent
-from workflow.langgraph_flow import create_workflow, run_workflow
-from evaluation.benchmark import BenchmarkRunner
+Total Python files: 30+
+Total Lines of Code: ~8,000+
 
-# Process input
-intake = IntakeAgent()
-call_input = intake.process(transcript_text="Agent: Hello. Customer: Hi.")
+  Agents (17):        ~4,500 lines
+  Workflow:           ~600 lines
+  UI:                 ~1,200 lines
+  Utils/Config:       ~600 lines
+  Evaluation:         ~350 lines
+  Tests:              ~400 lines
+  Scripts:            ~200 lines
 
-# Run workflow
-workflow = create_workflow(llm_name="claude")
-result = run_workflow(workflow, call_input)
+Quality:
+  [x] Type hints (Pydantic v2 throughout)
+  [x] Structured LLM output (function calling / json_mode)
+  [x] Error handling (try/except with graceful fallback)
+  [x] Mock mode for all agents (zero API cost dev/test)
+  [x] LangSmith tracing integration
+  [x] SHA-256 caching (avoids duplicate LLM calls)
+  [x] ChromaDB semantic similarity (RAG)
+  [x] CloudFormation IaC deployment
 
-# Access results
-print(result.summary.summary)
-print(result.qa_score.overall_score)
 
-# Run benchmark
-benchmark = BenchmarkRunner()
-bench_result = benchmark.run_full_benchmark(
-    call_id=result.call_id,
-    transcript=result.transcript.transcript
-)
-comparison = benchmark.compare_results(bench_result)
-print(comparison['fastest_model'])
+================================================================================
+DEPENDENCIES (requirements.txt highlights)
+================================================================================
+
+LangChain / LangGraph:
+  langchain, langchain-core, langchain-anthropic,
+  langchain-openai, langchain-google-genai, langgraph
+
+LLM Clients:
+  anthropic, openai, google-generativeai
+
+Vector DB:
+  chromadb==1.5.5
+
+Data / Schema:
+  pydantic>=2.0.0, python-dotenv
+
+UI:
+  streamlit>=1.28.0
+
+Audio (optional -- for WAV generation):
+  gtts, pydub  (+ system ffmpeg)
+
+Testing:
+  pytest>=7.4.0
+
+
+================================================================================
+VERSION HISTORY
+================================================================================
+
+V1 (Session 1 -- 2026-03-15)
+  5-node pipeline: intake -> transcription -> summarization -> quality_score -> end
+  4 agents, 6 UI tabs, file cache, JSONL history, Whisper, multi-LLM benchmark
+  Commit: baseline
+
+V2 (Session 3 -- 2026-03-21)
+  9-node pipeline: + pii_redaction -> rag_retrieval -> sentiment
+  ChromaDB, OpenAI embeddings, PII audit panel, RAG indicator
+  Commit: 535d70e
+
+V3 (Session 5 -- 2026-03-21)
+  17-node pipeline: + compliance_check -> escalation_prediction -> auto_tagging
+                    -> call_coaching -> anomaly_detection + customer_profile + kb_retrieval
+  All 8 roadmap agents implemented, 8 new UI panels, sample audio, AWS deployed
+  Commit: f7f00fc + f581bce + 85b3800
+
 
 ================================================================================
 FILE VERIFICATION CHECKLIST
 ================================================================================
 
-Agents:
-  [✓] __init__.py
-  [✓] intake_agent.py (8.5 KB)
-  [✓] transcription_agent.py (8.2 KB)
-  [✓] summarization_agent.py (8.1 KB)
-  [✓] quality_score_agent.py (8.3 KB)
-  [✓] routing_agent.py (6.8 KB)
+Agents (17 files):
+  [x] __init__.py
+  [x] intake_agent.py
+  [x] transcription_agent.py
+  [x] summarization_agent.py
+  [x] quality_score_agent.py
+  [x] routing_agent.py
+  [x] pii_redaction_agent.py
+  [x] rag_retrieval_agent.py
+  [x] sentiment_agent.py
+  [x] compliance_checker_agent.py
+  [x] escalation_prediction_agent.py
+  [x] call_coaching_agent.py
+  [x] knowledge_base_agent.py
+  [x] customer_profile_agent.py
+  [x] auto_tagging_agent.py
+  [x] anomaly_detection_agent.py
+  [x] feedback_loop_agent.py
 
 Workflow:
-  [✓] __init__.py
-  [✓] langgraph_flow.py (11.2 KB)
-
-Evaluation:
-  [✓] __init__.py
-  [✓] benchmark.py (14.5 KB)
+  [x] __init__.py
+  [x] langgraph_flow.py (V3, 17 nodes)
 
 UI:
-  [✓] streamlit_app.py (22.3 KB)
+  [x] streamlit_app.py (V3, 7 tabs, 8 result panels)
 
 Utils:
-  [✓] __init__.py
-  [✓] schemas.py (12.8 KB)
+  [x] __init__.py
+  [x] schemas.py
+  [x] cache.py
+  [x] vector_store.py
+  [x] memory.py
+  [x] validation.py
 
 Config:
-  [✓] settings.py (5.3 KB)
+  [x] settings.py
 
-Tests:
-  [✓] __init__.py
-  [✓] test_agents.py (15.2 KB)
+Evaluation:
+  [x] __init__.py
+  [x] benchmark.py
 
-Data:
-  [✓] sample_call_1.json (2.4 KB)
-  [✓] sample_call_2.json (2.8 KB)
-  [✓] sample_call_3.json (2.9 KB)
+Scripts:
+  [x] generate_sample_audio.py
+  [x] precache_all.py
 
-Documentation:
-  [✓] README.md (12.2 KB)
-  [✓] QUICKSTART.md (3.2 KB)
-  [✓] .env.example (516 B)
-  [✓] requirements.txt (513 B)
-  [✓] FILE_MANIFEST.txt (This file)
+Deploy:
+  [x] cloudformation-ec2-python.yaml (WORKING -- used for live deployment)
+  [x] cloudformation.yaml
+  [x] deploy-to-aws.sh
+  [x] deploy-to-aws-nodcker.sh
 
-Total: 26 files, all present and verified
+Docs:
+  [x] README.md (V3)
+  [x] QUICKSTART.md
+  [x] PRODUCTION.md
+  [x] FILE_MANIFEST.txt (this file)
+  [x] docs/session_log.md
+  [x] .env.example
+  [x] requirements.txt
 
-================================================================================
-READY FOR DEPLOYMENT
-================================================================================
-
-This codebase is:
-  ✓ Fully functional and tested
-  ✓ Production-quality with comprehensive error handling
-  ✓ Documented with README and docstrings
-  ✓ Configurable via environment variables
-  ✓ Extensible for custom LLMs or metrics
-  ✓ Deployable on Docker, Streamlit Cloud, or AWS
-  ✓ Ready for capstone presentation
-  ✓ Interview-ready (clean, well-structured code)
-
-Next steps:
-  1. Run: pip install -r requirements.txt
-  2. Setup: cp .env.example .env (add API keys)
-  3. Launch: streamlit run ui/streamlit_app.py
-  4. Demo: Load sample calls and run benchmark
+Total tracked files: 45+
 
 ================================================================================
