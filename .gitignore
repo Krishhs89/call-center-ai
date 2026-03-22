@@ -36,9 +36,10 @@ archive/
 # Zoom / meeting links saved as files
 https:/
 
-# Data (cache regenerated at runtime)
+# Data (regenerated at runtime — do not commit)
 data/cache/
 data/call_history.jsonl
+data/vector_db/
 
 # Temp
 *.tmp
