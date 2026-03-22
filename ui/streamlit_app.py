@@ -507,6 +507,41 @@ with tab2:
                         st.bar_chart(df_turns.set_index("turn")[["score"]])
                         st.caption("Score: -1.0 = very negative → 1.0 = very positive")
 
+        # ── V3: Escalation Prediction ─────────────────────────────────────────
+        escalation = st.session_state.v2_extras.get("escalation")
+        if escalation and escalation.get("risk_level", "unknown") != "unknown":
+            risk_score = escalation.get("risk_score", 0)
+            risk_level = escalation.get("risk_level", "unknown")
+            risk_icon = {"low": "🟢", "medium": "🟡", "high": "🔴", "critical": "🚨"}.get(risk_level, "⚪")
+
+            if risk_level in ("high", "critical"):
+                st.error(
+                    f"🚨 **Escalation Alert — Risk {risk_score:.0f}/100** · "
+                    f"{escalation.get('recommended_intervention', '')}"
+                )
+            elif risk_level == "medium":
+                st.warning(f"⚠️ **Escalation Risk {risk_score:.0f}/100** (Medium) — Monitor this call")
+
+            with st.expander(f"{risk_icon} Escalation Prediction — {risk_level.upper()} ({risk_score:.0f}/100)", expanded=risk_level in ("high", "critical")):
+                e1, e2, e3 = st.columns(3)
+                with e1:
+                    st.metric("Risk Score", f"{risk_score:.0f}/100")
+                with e2:
+                    st.metric("Predicted Outcome", escalation.get("predicted_outcome", "N/A").replace("_", " ").title())
+                with e3:
+                    st.metric("Triggers Found", len(escalation.get("triggers", [])))
+
+                st.markdown(f"**Recommended Action:** {escalation.get('recommended_intervention', 'N/A')}")
+                st.markdown(f"**Frustration Peak:** {escalation.get('customer_frustration_peak', 'N/A')}")
+                st.markdown(f"**What could have prevented this:** {escalation.get('would_have_prevented', 'N/A')}")
+
+                triggers = escalation.get("triggers", [])
+                if triggers:
+                    st.markdown("**Trigger Moments:**")
+                    for trig in triggers:
+                        impact_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(trig.get("impact", ""), "⚪")
+                        st.caption(f"{impact_icon} [{trig.get('trigger_type', '').replace('_', ' ').upper()}] {trig.get('turn_reference', '')}")
+
         # ── V3: Compliance Check ──────────────────────────────────────────────
         compliance = st.session_state.v2_extras.get("compliance")
         if compliance and compliance.get("overall_compliance_status", "unknown") != "unknown":
