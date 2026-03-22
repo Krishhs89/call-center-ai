@@ -16,6 +16,7 @@ from agents.transcription_agent import TranscriptionAgent
 from agents.pii_redaction_agent import PIIRedactionAgent
 from agents.rag_retrieval_agent import RAGRetrievalAgent
 from agents.sentiment_agent import SentimentAgent
+from agents.compliance_checker_agent import ComplianceCheckerAgent
 from agents.summarization_agent import SummarizationAgent
 from agents.quality_score_agent import QualityScoreAgent
 from agents.routing_agent import RoutingAgent
@@ -35,6 +36,7 @@ class WorkflowState(TypedDict):
     pii_summary: dict               # {field: count} of redacted PII items
     rag_context: str                # Formatted context from similar past calls
     sentiment: Optional[dict]       # Per-turn sentiment + escalation risk
+    compliance: Optional[dict]      # Compliance violations + score
     summary: Optional[SummaryOutput]
     qa_score: Optional[QAScore]
     errors: list[str]
@@ -65,6 +67,7 @@ def create_workflow(
     pii_agent = PIIRedactionAgent()
     rag_agent = RAGRetrievalAgent(top_k=3)
     sentiment_agent = SentimentAgent(llm_name=llm_name)
+    compliance_agent = ComplianceCheckerAgent(llm_name=llm_name)
     summarization_agent = SummarizationAgent(llm_name=llm_name)
     quality_score_agent = QualityScoreAgent(llm_name=llm_name)
     routing_agent = RoutingAgent()
@@ -170,6 +173,23 @@ def create_workflow(
             state["sentiment"] = None
         return state
 
+    def compliance_check_node(state: WorkflowState) -> WorkflowState:
+        """Check transcript for regulatory compliance violations."""
+        logger.info(f"[NODE] compliance_check: Processing call {state['call_id']}")
+        state["current_step"] = "compliance_check"
+        try:
+            text = state.get("redacted_transcript") or ""
+            if text:
+                result = compliance_agent.process(state["call_id"], text)
+                state["compliance"] = result
+                n = len(result.get("violations", []))
+                score = result.get("compliance_score", 100)
+                logger.info(f"[NODE] compliance_check: {n} violation(s), score={score:.0f}/100")
+        except Exception as e:
+            logger.warning(f"[NODE] compliance_check: {e} — continuing without compliance data")
+            state["compliance"] = None
+        return state
+
     def summarization_node(state: WorkflowState) -> WorkflowState:
         """Generate summary using PII-safe redacted transcript + RAG context."""
         logger.info(f"[NODE] summarization: Processing call {state['call_id']}")
@@ -227,6 +247,7 @@ def create_workflow(
     workflow.add_node("pii_redaction", pii_redaction_node)
     workflow.add_node("rag_retrieval", rag_retrieval_node)
     workflow.add_node("sentiment", sentiment_node)
+    workflow.add_node("compliance_check", compliance_check_node)
     workflow.add_node("summarization", summarization_node)
     workflow.add_node("quality_score", quality_score_node)
     workflow.add_node("error_handler", error_handler_node)
@@ -244,7 +265,8 @@ def create_workflow(
 
     workflow.add_edge("pii_redaction", "rag_retrieval")
     workflow.add_edge("rag_retrieval", "sentiment")
-    workflow.add_edge("sentiment", "summarization")
+    workflow.add_edge("sentiment", "compliance_check")
+    workflow.add_edge("compliance_check", "summarization")
     workflow.add_edge("summarization", "quality_score")
     workflow.add_edge("quality_score", "end")
 
@@ -282,6 +304,7 @@ def run_workflow(
         "pii_summary": {},
         "rag_context": "",
         "sentiment": None,
+        "compliance": None,
         "summary": None,
         "qa_score": None,
         "errors": [],
@@ -332,6 +355,7 @@ def run_workflow(
             "pii_summary": final_state.get("pii_summary", {}),
             "rag_context": final_state.get("rag_context", ""),
             "sentiment": final_state.get("sentiment"),
+            "compliance": final_state.get("compliance"),
         }
 
         return result

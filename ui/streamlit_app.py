@@ -507,6 +507,47 @@ with tab2:
                         st.bar_chart(df_turns.set_index("turn")[["score"]])
                         st.caption("Score: -1.0 = very negative → 1.0 = very positive")
 
+        # ── V3: Compliance Check ──────────────────────────────────────────────
+        compliance = st.session_state.v2_extras.get("compliance")
+        if compliance and compliance.get("overall_compliance_status", "unknown") != "unknown":
+            st.subheader("⚖️ Compliance Check")
+            status = compliance.get("overall_compliance_status", "unknown")
+            score = compliance.get("compliance_score", 100)
+            violations = compliance.get("violations", [])
+            requires_review = compliance.get("requires_immediate_review", False)
+
+            status_color = {
+                "compliant": "🟢", "minor_issues": "🟡",
+                "major_violations": "🔴", "critical": "🚨"
+            }.get(status, "⚪")
+
+            c1, c2, c3, c4 = st.columns(4)
+            with c1:
+                st.metric("Compliance Score", f"{score:.0f}/100")
+            with c2:
+                st.metric("Status", f"{status_color} {status.replace('_', ' ').title()}")
+            with c3:
+                st.metric("Violations Found", len(violations))
+            with c4:
+                st.metric("Immediate Review", "🚨 YES" if requires_review else "✅ No")
+
+            if requires_review:
+                st.error(f"🚨 **Supervisor action required** — {compliance.get('summary', '')}")
+            elif violations:
+                st.warning(compliance.get("summary", ""))
+            else:
+                st.success(compliance.get("summary", "No violations detected."))
+
+            if violations:
+                sev_icon = {"critical": "🚨", "high": "🔴", "medium": "🟡", "low": "🟢"}
+                for v in violations:
+                    icon = sev_icon.get(v.get("severity", ""), "⚪")
+                    with st.expander(
+                        f"{icon} [{v.get('category')}] {v.get('severity', '').upper()} — {v.get('description', '')[:80]}"
+                    ):
+                        st.markdown(f"**Evidence:** {v.get('transcript_evidence', 'N/A')}")
+                        st.markdown(f"**Remediation:** {v.get('remediation', 'N/A')}")
+
         # ── V2: PII Redaction Summary ─────────────────────────────────────────
         pii_summary = st.session_state.v2_extras.get("pii_summary", {})
         rag_ctx = st.session_state.v2_extras.get("rag_context", "")
