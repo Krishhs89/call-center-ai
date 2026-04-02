@@ -473,7 +473,9 @@ with tab2:
     if not st.session_state.call_result:
         st.info("👈 Upload and process a call in the Upload tab first")
     else:
-        st.caption(f"🔵 Showing: **{st.session_state.active_call_id}** · LLM: **{st.session_state.active_llm}**")
+        st.caption(f"🔵 Showing: **{st.session_state.active_call_id}** · LLM: **{st.session_state.active_llm}** · Pipeline: **{st.session_state.pipeline_version}**")
+        if st.session_state.pipeline_version == "V1":
+            st.info("ℹ️ **V1 Pipeline** — Core summary and QA score only. Switch to V3 in the sidebar for PII redaction, RAG, sentiment, compliance, coaching, and anomaly detection.")
         result = st.session_state.call_result
 
         # Call Info
@@ -838,21 +840,24 @@ with tab2:
         rag_ctx = st.session_state.v2_extras.get("rag_context", "")
         kb_ctx = st.session_state.v2_extras.get("kb_context", "")
         with st.expander("🔒 Processing Details (PII / RAG / KB)", expanded=False):
-            if pii_summary:
-                total_pii = sum(pii_summary.values())
-                st.success(f"🔒 PII Redaction: {total_pii} item(s) masked before LLM processing")
-                for field, count in pii_summary.items():
-                    st.caption(f"  • {field.replace('_', ' ').title()}: {count}")
+            if st.session_state.pipeline_version == "V1":
+                st.caption("Not available in V1 pipeline — these features require V3.")
             else:
-                st.info("🔒 PII Redaction: No PII detected in transcript")
-            if rag_ctx:
-                st.success(f"🔍 Call-History RAG: {len(rag_ctx)} chars of context from similar past calls")
-            else:
-                st.info("🔍 Call-History RAG: No similar past calls yet (vector store building up)")
-            if kb_ctx:
-                st.success(f"📚 Knowledge Base: {len(kb_ctx)} chars of KB articles injected into prompts")
-            else:
-                st.info("📚 Knowledge Base: No KB articles matched for this call")
+                if pii_summary:
+                    total_pii = sum(pii_summary.values())
+                    st.success(f"🔒 PII Redaction: {total_pii} item(s) masked before LLM processing")
+                    for field, count in pii_summary.items():
+                        st.caption(f"  • {field.replace('_', ' ').title()}: {count}")
+                else:
+                    st.info("🔒 PII Redaction: No PII detected in transcript")
+                if rag_ctx:
+                    st.success(f"🔍 Call-History RAG: {len(rag_ctx)} chars of context from similar past calls")
+                else:
+                    st.info("🔍 Call-History RAG: No similar past calls yet (vector store building up)")
+                if kb_ctx:
+                    st.success(f"📚 Knowledge Base: {len(kb_ctx)} chars of KB articles injected into prompts")
+                else:
+                    st.info("📚 Knowledge Base: No KB articles matched for this call")
 
         # Errors
         if result.errors:
@@ -1248,12 +1253,14 @@ with tab4:
 
 # TAB 5: Workflow Visualization
 with tab5:
-    st.header("🗺️ LangGraph Workflow")
+    _pv = st.session_state.pipeline_version  # "V1" or "V3"
+    st.header(f"🗺️ LangGraph Workflow — {_pv}")
 
     # ── SECTION 1: Graph Diagram + Side Explanation ───────────────────────────
     st.subheader("📊 Graph Diagram")
+    _flow_file = "workflow/langgraph_flow_v1.py" if _pv == "V1" else "workflow/langgraph_flow.py"
     st.caption(
-        "📌 **LangGraph workflow** — matches the compiled graph in `workflow/langgraph_flow.py`. "
+        f"📌 **LangGraph workflow** — matches the compiled graph in `{_flow_file}`. "
         "Solid arrows = fixed edges. Dashed orange arrows = conditional routing."
     )
     diag_col, exp_col = st.columns([1.2, 1], gap="large")
@@ -1271,31 +1278,90 @@ with tab5:
 **Arrow types**
 - **Solid arrow** `→` — always taken, no condition
 - **Dashed arrow** `-->` — conditional, depends on state
-
+""")
+        if _pv == "V1":
+            st.markdown("""
 ---
-**Step-by-step walk-through**
+**Step-by-step walk-through (V1 — 5 nodes)**
 
 1. **START** kicks off the pipeline with the user's input.
 2. **intake** validates the transcript and assigns a `call_id`.
 3. **transcription** normalises speaker labels to `Agent:` / `Customer:`.
 4. *Conditional split:*
-   - No errors → **rag_retrieval** queries ChromaDB for similar past calls
-   - Errors detected → **error_handler** attempts recovery, then rejoins
-5. **rag_retrieval** embeds the transcript and retrieves the top-3 semantically similar past calls from ChromaDB to form a RAG context block.
-6. **summarization** calls the selected LLM with the transcript + RAG context injected into the prompt.
-7. **quality_score** calls the LLM again with the same RAG context to calibrate scores against comparable past calls.
-8. **end** packages everything into a `CallResult` and stores the call's embedding in ChromaDB for future RAG retrieval.
-9. **END** returns control to the Streamlit UI.
+   - No errors → **summarization** calls the LLM to produce summary + key points
+   - Errors → **error_handler** attempts recovery, then rejoins at summarization
+5. **quality_score** calls the LLM to score the call on 4 dimensions (0–100).
+6. **end** packages everything into a `CallResult` and saves to JSONL call history.
+7. **END** returns control to the Streamlit UI.
 
 ---
 **error_handler recovery logic**
 
-If transcription fails the handler checks what is still missing and skips ahead to the earliest incomplete step — so no work is ever duplicated.
-        """)
+Checks what's still missing and skips ahead to the earliest incomplete step.
+""")
+        else:
+            st.markdown("""
+---
+**Step-by-step walk-through (V3 — 17 nodes)**
+
+1. **START** kicks off the pipeline with the user's input.
+2. **intake** validates the transcript and assigns a `call_id`.
+3. **customer_profile** loads cross-call history and assigns a risk tier (no LLM).
+4. **transcription** normalises speaker labels to `Agent:` / `Customer:`.
+5. *Conditional split:*
+   - No errors → **pii_redaction** masks phone/email/SSN/card before any LLM sees it
+   - Errors → **error_handler** attempts recovery, then rejoins
+6. **rag_retrieval** embeds the transcript and fetches top-3 similar past calls from ChromaDB.
+7. **kb_retrieval** finds relevant SOPs and scores SOP compliance.
+8. **sentiment** scores each turn and calculates escalation risk signal.
+9. **compliance_check** scans for HIPAA/GDPR/PCI-DSS/TCPA violations.
+10. **escalation_prediction** combines all signals to produce a risk score 0–100.
+11. **summarization** calls the LLM with transcript + RAG + KB context injected.
+12. **auto_tagging** assigns multi-label classification (category, intent, routing, product).
+13. **quality_score** calls the LLM with the same context to calibrate scores.
+14. **call_coaching** generates personalised coaching tips + example scripts.
+15. **anomaly_detection** z-scores the call vs history (no LLM).
+16. **end** stores the embedding in ChromaDB, saves to JSONL, and runs FeedbackLoopAgent.
+17. **END** returns control to the Streamlit UI.
+
+---
+**error_handler recovery logic**
+
+Checks what's missing and skips ahead to the earliest incomplete step — no work is duplicated.
+""")
 
     with diag_col:
-        # Static graphviz DOT diagram — always renders on Streamlit Cloud without extra dependencies
-        _dot_source = """
+        if _pv == "V1":
+            _dot_source = """
+digraph LangGraph {
+    rankdir=TD
+    bgcolor=white
+    fontname=Helvetica
+    node [fontname=Helvetica fontsize=10]
+
+    __start__     [label="START" shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
+    intake        [label="intake\\n(IntakeAgent)"               shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    transcription [label="transcription\\n(TranscriptionAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    error_handler [label="error_handler\\n(recovery)"           shape=box style=filled fillcolor="#ffe0b2" color="#f57c00"]
+    summarization [label="summarization\\n(SummarizationAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    quality_score [label="quality_score\\n(QualityScoreAgent)"  shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    end_node      [label="end"                                  shape=box style=filled fillcolor="#c8e6c9" color="#4caf50"]
+    __end__       [label="END" shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
+
+    __start__     -> intake        [color="#333333"]
+    intake        -> transcription [color="#333333"]
+    transcription -> summarization [color="#333333" label="no errors"]
+    transcription -> error_handler [color="#f57c00" style=dashed label="errors"]
+    summarization -> quality_score [color="#333333"]
+    quality_score -> end_node      [color="#333333"]
+    error_handler -> summarization [color="#f57c00" style=dashed]
+    error_handler -> quality_score [color="#f57c00" style=dashed]
+    error_handler -> end_node      [color="#f57c00" style=dashed]
+    end_node      -> __end__       [color="#333333"]
+}
+"""
+        else:
+            _dot_source = """
 digraph LangGraph {
     rankdir=TD
     bgcolor=white
@@ -1303,22 +1369,22 @@ digraph LangGraph {
     node [fontname=Helvetica fontsize=10]
 
     __start__          [label="START" shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
-    intake             [label="intake\n(IntakeAgent)"               shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
-    customer_profile   [label="customer_profile\n(CustomerProfileAgent)" shape=box style=filled fillcolor="#e8f5e9" color="#2e7d32"]
-    transcription      [label="transcription\n(TranscriptionAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
-    error_handler      [label="error_handler\n(recovery)"           shape=box style=filled fillcolor="#ffe0b2" color="#f57c00"]
-    pii_redaction      [label="pii_redaction\n(PIIRedactionAgent)"  shape=box style=filled fillcolor="#fce4ec" color="#c62828"]
-    rag_retrieval      [label="rag_retrieval\n(RAGAgent + ChromaDB)" shape=box style=filled fillcolor="#e1bee7" color="#7b1fa2"]
-    kb_retrieval       [label="kb_retrieval\n(KnowledgeBaseAgent)"  shape=box style=filled fillcolor="#e8eaf6" color="#3949ab"]
-    sentiment          [label="sentiment\n(SentimentAgent)"          shape=box style=filled fillcolor="#fff9c4" color="#f9a825"]
-    compliance_check   [label="compliance_check\n(ComplianceAgent)" shape=box style=filled fillcolor="#fce4ec" color="#c62828"]
-    escalation_prediction [label="escalation_pred\n(EscalationAgent)" shape=box style=filled fillcolor="#ffe0b2" color="#e65100"]
-    summarization      [label="summarization\n(SummarizationAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
-    auto_tagging       [label="auto_tagging\n(AutoTaggingAgent)"    shape=box style=filled fillcolor="#e8f5e9" color="#2e7d32"]
-    quality_score      [label="quality_score\n(QualityScoreAgent)"  shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
-    call_coaching      [label="call_coaching\n(CallCoachingAgent)"  shape=box style=filled fillcolor="#e8f5e9" color="#2e7d32"]
-    anomaly_detection  [label="anomaly_detect\n(AnomalyAgent)"      shape=box style=filled fillcolor="#fce4ec" color="#c62828"]
-    end_node           [label="end\n(+ FeedbackLoop)"               shape=box style=filled fillcolor="#c8e6c9" color="#4caf50"]
+    intake             [label="intake\\n(IntakeAgent)"               shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    customer_profile   [label="customer_profile\\n(CustomerProfileAgent)" shape=box style=filled fillcolor="#e8f5e9" color="#2e7d32"]
+    transcription      [label="transcription\\n(TranscriptionAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    error_handler      [label="error_handler\\n(recovery)"           shape=box style=filled fillcolor="#ffe0b2" color="#f57c00"]
+    pii_redaction      [label="pii_redaction\\n(PIIRedactionAgent)"  shape=box style=filled fillcolor="#fce4ec" color="#c62828"]
+    rag_retrieval      [label="rag_retrieval\\n(RAGAgent + ChromaDB)" shape=box style=filled fillcolor="#e1bee7" color="#7b1fa2"]
+    kb_retrieval       [label="kb_retrieval\\n(KnowledgeBaseAgent)"  shape=box style=filled fillcolor="#e8eaf6" color="#3949ab"]
+    sentiment          [label="sentiment\\n(SentimentAgent)"          shape=box style=filled fillcolor="#fff9c4" color="#f9a825"]
+    compliance_check   [label="compliance_check\\n(ComplianceAgent)" shape=box style=filled fillcolor="#fce4ec" color="#c62828"]
+    escalation_prediction [label="escalation_pred\\n(EscalationAgent)" shape=box style=filled fillcolor="#ffe0b2" color="#e65100"]
+    summarization      [label="summarization\\n(SummarizationAgent)" shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    auto_tagging       [label="auto_tagging\\n(AutoTaggingAgent)"    shape=box style=filled fillcolor="#e8f5e9" color="#2e7d32"]
+    quality_score      [label="quality_score\\n(QualityScoreAgent)"  shape=box style=filled fillcolor="#bbdefb" color="#1976d2"]
+    call_coaching      [label="call_coaching\\n(CallCoachingAgent)"  shape=box style=filled fillcolor="#e8f5e9" color="#2e7d32"]
+    anomaly_detection  [label="anomaly_detect\\n(AnomalyAgent)"      shape=box style=filled fillcolor="#fce4ec" color="#c62828"]
+    end_node           [label="end\\n(+ FeedbackLoop)"               shape=box style=filled fillcolor="#c8e6c9" color="#4caf50"]
     __end__            [label="END" shape=oval style=filled fillcolor="#c8e6c9" color="#4caf50"]
 
     __start__           -> intake               [color="#333333"]
@@ -1349,12 +1415,25 @@ digraph LangGraph {
 
     # ── SECTION 2: Workflow Architecture (static reference) ────────────────────
     st.subheader("📐 Workflow Architecture")
-    st.caption("📌 **Static reference** — this table describes the fixed graph structure defined in `workflow/langgraph_flow.py`.")
+    st.caption(f"📌 **Static reference** — graph structure defined in `{_flow_file}`.")
 
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("**Nodes (Agents) — Version 3 (17 nodes)**")
-        st.markdown("""
+        if _pv == "V1":
+            st.markdown("**Nodes (Agents) — Version 1 (5 nodes)**")
+            st.markdown("""
+| Node | Agent | Role |
+|------|-------|------|
+| `intake` | IntakeAgent | Input validation, call_id |
+| `transcription` | TranscriptionAgent | Audio → text, speaker normalisation |
+| `summarization` | SummarizationAgent | LLM summary, key points, action items |
+| `quality_score` | QualityScoreAgent | 4-dimension QA scoring 0–100 |
+| `end` | — | Assemble CallResult, save history |
+| `error_handler` | recovery logic | Skip-ahead on transcription failure |
+            """)
+        else:
+            st.markdown("**Nodes (Agents) — Version 3 (17 nodes)**")
+            st.markdown("""
 | Node | Agent | Version |
 |------|-------|---------|
 | `intake` | IntakeAgent | V1 |
@@ -1373,10 +1452,23 @@ digraph LangGraph {
 | `anomaly_detection` | AnomalyDetectionAgent | **V3** |
 | `end` + `feedback_loop` | FeedbackLoopAgent | **V3** |
 | `error_handler` | recovery logic | V1 |
-        """)
+            """)
     with col2:
         st.markdown("**Key Edges**")
-        st.markdown("""
+        if _pv == "V1":
+            st.markdown("""
+| From | To | Condition |
+|------|----|-----------|
+| START | `intake` | always |
+| `intake` | `transcription` | always |
+| `transcription` | `summarization` | `errors == []` |
+| `transcription` | `error_handler` | `errors != []` |
+| `summarization` | `quality_score` | always |
+| `quality_score` | `end` | always |
+| `end` | END | always |
+            """)
+        else:
+            st.markdown("""
 | From | To | Condition |
 |------|----|-----------|
 | START | `intake` | always |
@@ -1396,7 +1488,7 @@ digraph LangGraph {
 | `call_coaching` | `anomaly_detection` | always |
 | `anomaly_detection` | `end` | always |
 | `end` | END | always |
-        """)
+            """)
 
     st.markdown("---")
 
@@ -1406,16 +1498,38 @@ digraph LangGraph {
     state_col1, state_col2 = st.columns(2)
 
     with state_col1:
-        st.caption("📌 **Static** — schema defined in `workflow/langgraph_flow.py`")
-        st.code("""class WorkflowState(TypedDict):
-    call_id:      str             # unique call identifier
-    input_data:   CallInput       # raw transcript + metadata
-    transcript:   TranscriptOutput# normalized text + speakers
-    rag_context:  str             # similar past calls from ChromaDB
-    summary:      SummaryOutput   # summary, key_points, action_items
-    qa_score:     QAScore         # empathy/prof/resolution/compliance
-    errors:       list[str]       # drives conditional routing
-    current_step: str             # last node that ran""", language="python")
+        st.caption(f"📌 **Static** — schema defined in `{_flow_file}`")
+        if _pv == "V1":
+            st.code("""class WorkflowStateV1(TypedDict):
+    call_id:      str              # unique call identifier
+    input_data:   CallInput        # raw transcript + metadata
+    transcript:   TranscriptOutput # normalized text + speakers
+    summary:      SummaryOutput    # summary, key_points, action_items
+    qa_score:     QAScore          # empathy/prof/resolution/compliance
+    errors:       list[str]        # drives conditional routing
+    current_step: str              # last node that ran""", language="python")
+        else:
+            st.code("""class WorkflowState(TypedDict):
+    call_id:          str              # unique call identifier
+    input_data:       CallInput        # raw transcript + metadata
+    transcript:       TranscriptOutput # normalized text + speakers
+    redacted_transcript: str           # PII-masked transcript
+    pii_summary:      dict             # {field: count} redacted items
+    customer_profile: Optional[dict]   # cross-call customer journey
+    rag_context:      str              # top-3 similar calls (ChromaDB)
+    kb_context:       str              # SOP context (KnowledgeBase)
+    kb_analysis:      Optional[dict]   # full SOP compliance analysis
+    sentiment:        Optional[dict]   # per-turn sentiment + escalation
+    compliance:       Optional[dict]   # HIPAA/GDPR violations + score
+    escalation:       Optional[dict]   # risk score 0-100 + triggers
+    summary:          Optional[SummaryOutput]
+    tags:             Optional[dict]   # multi-label classification
+    qa_score:         Optional[QAScore]
+    coaching:         Optional[dict]   # personalised coaching tips
+    anomaly:          Optional[dict]   # anomaly score + flags
+    feedback_loop:    Optional[dict]   # coaching adoption delta
+    errors:           list[str]        # drives conditional routing
+    current_step:     str              # last node that ran""", language="python")
 
     with state_col2:
         st.caption("✅ **Dynamic** — actual values from last processed call")
@@ -1473,25 +1587,51 @@ digraph LangGraph {
         r = st.session_state.call_result
         had_errors = bool(r.errors)
 
-        # Node-by-node trace
-        steps = [
-            ("START", "→ intake", "fixed", "green"),
-            ("intake", "→ transcription", "fixed (always)", "green"),
-            ("transcription",
-             "→ **error_handler** ⚠️" if had_errors else "→ **summarization** ✅",
-             f"conditional — `errors={'non-empty' if had_errors else '[]'}`",
-             "red" if had_errors else "green"),
-        ]
-        if had_errors:
-            steps.append(("error_handler",
-                          "→ summarization (recovery)",
-                          "conditional — summary was missing",
-                          "orange"))
-        steps += [
-            ("summarization", "→ quality_score", "fixed", "green"),
-            ("quality_score", "→ end", "fixed", "green"),
-            ("end", "→ END", "fixed", "green"),
-        ]
+        if _pv == "V1":
+            steps = [
+                ("START", "→ intake", "fixed", "green"),
+                ("intake", "→ transcription", "fixed", "green"),
+                ("transcription",
+                 "→ **error_handler** ⚠️" if had_errors else "→ **summarization** ✅",
+                 f"conditional — `errors={'non-empty' if had_errors else '[]'}`",
+                 "red" if had_errors else "green"),
+            ]
+            if had_errors:
+                steps.append(("error_handler", "→ summarization (recovery)", "conditional — summary missing", "orange"))
+            steps += [
+                ("summarization", "→ quality_score", "fixed", "green"),
+                ("quality_score", "→ end", "fixed", "green"),
+                ("end", "→ END", "fixed", "green"),
+            ]
+        else:
+            steps = [
+                ("START", "→ intake", "fixed", "green"),
+                ("intake", "→ customer_profile", "fixed", "green"),
+                ("customer_profile", "→ transcription", "fixed", "green"),
+                ("transcription",
+                 "→ **error_handler** ⚠️" if had_errors else "→ **pii_redaction** ✅",
+                 f"conditional — `errors={'non-empty' if had_errors else '[]'}`",
+                 "red" if had_errors else "green"),
+            ]
+            if had_errors:
+                steps.append(("error_handler", "→ summarization (recovery)", "conditional — summary missing", "orange"))
+            else:
+                steps += [
+                    ("pii_redaction", "→ rag_retrieval", "fixed", "green"),
+                    ("rag_retrieval", "→ kb_retrieval", "fixed", "green"),
+                    ("kb_retrieval", "→ sentiment", "fixed", "green"),
+                    ("sentiment", "→ compliance_check", "fixed", "green"),
+                    ("compliance_check", "→ escalation_prediction", "fixed", "green"),
+                    ("escalation_prediction", "→ summarization", "fixed", "green"),
+                ]
+            steps += [
+                ("summarization", "→ auto_tagging", "fixed", "green"),
+                ("auto_tagging", "→ quality_score", "fixed", "green"),
+                ("quality_score", "→ call_coaching", "fixed", "green"),
+                ("call_coaching", "→ anomaly_detection", "fixed", "green"),
+                ("anomaly_detection", "→ end", "fixed", "green"),
+                ("end", "→ END", "fixed", "green"),
+            ]
 
         for from_node, to_node, condition, color in steps:
             icon = "🔴" if color == "red" else "🟠" if color == "orange" else "🟢"
@@ -1506,44 +1646,62 @@ digraph LangGraph {
 
     # ── SECTION 5: Router Agent logic explained ────────────────────────────────
     st.subheader("🧠 How the Router Agent Works")
-    st.caption("📌 **Static** — explains the conditional edge logic in `workflow/langgraph_flow.py` and `agents/routing_agent.py`.")
+    st.caption(f"📌 **Static** — explains the conditional edge logic in `{_flow_file}` and `agents/routing_agent.py`.")
 
-    st.markdown("""
+    st.markdown(f"""
 LangGraph routing is controlled by **conditional edges** — Python lambda functions that
 inspect the shared state and return which node to go to next.
 
-There are **two conditional branch points** in this workflow:
+There are **two conditional branch points** in the {_pv} workflow:
     """)
 
-    st.markdown("#### Branch 1 — After `transcription`")
-    st.code("""# In langgraph_flow.py → create_workflow()
+    if _pv == "V1":
+        st.markdown("#### Branch 1 — After `transcription`")
+        st.code("""# In langgraph_flow_v1.py → create_workflow_v1()
 workflow.add_conditional_edges(
-    "transcription",                                          # source node
-    lambda state: "error_handler" if state["errors"]         # routing function
-                  else "summarization",
-    {"error_handler": "error_handler",                        # mapping: return value → node name
-     "summarization": "summarization"},
+    "transcription",
+    lambda s: "error_handler" if s["errors"] else "summarization",
+    {"error_handler": "error_handler", "summarization": "summarization"},
 )
 
-# What triggers this:
-#   state["errors"] is populated if TranscriptionAgent raises an exception.
-#   If errors = []  → go to summarization  (happy path)
-#   If errors != [] → go to error_handler  (recovery path)""", language="python")
+# If errors = []  → go to summarization  (happy path)
+# If errors != [] → go to error_handler  (recovery path)""", language="python")
 
-    st.markdown("#### Branch 2 — After `error_handler`")
-    st.code("""# In langgraph_flow.py → create_workflow()
+        st.markdown("#### Branch 2 — After `error_handler`")
+        st.code("""# In langgraph_flow_v1.py → create_workflow_v1()
 workflow.add_conditional_edges(
     "error_handler",
-    lambda state: "summarization"  if not state["summary"]   # still need summary?
-             else "quality_score"  if not state["qa_score"]  # still need QA?
-             else "end",                                      # both done, finish
-    {"summarization": "summarization",
-     "quality_score": "quality_score",
-     "end": "end"},
+    lambda s: "summarization" if not s["summary"]
+         else "quality_score" if not s["qa_score"]
+         else "end",
+    {"summarization": "summarization", "quality_score": "quality_score", "end": "end"},
 )
 
-# Logic: error_handler checks what's missing and skips ahead to the
-# earliest incomplete step, so no work is duplicated after recovery.""", language="python")
+# error_handler checks what's missing and skips to earliest incomplete step.""", language="python")
+    else:
+        st.markdown("#### Branch 1 — After `transcription`")
+        st.code("""# In langgraph_flow.py → create_workflow()
+workflow.add_conditional_edges(
+    "transcription",
+    lambda s: "error_handler" if s["errors"] else "pii_redaction",
+    {"error_handler": "error_handler", "pii_redaction": "pii_redaction"},
+)
+
+# If errors = []  → go to pii_redaction  (happy path — PII masked before any LLM)
+# If errors != [] → go to error_handler  (recovery path)""", language="python")
+
+        st.markdown("#### Branch 2 — After `error_handler`")
+        st.code("""# In langgraph_flow.py → create_workflow()
+workflow.add_conditional_edges(
+    "error_handler",
+    lambda s: "summarization" if not s["summary"]
+         else "quality_score" if not s["qa_score"]
+         else "end",
+    {"summarization": "summarization", "quality_score": "quality_score", "end": "end"},
+)
+
+# error_handler skips the enrichment nodes (PII/RAG/KB/sentiment/compliance/escalation)
+# and rejoins at summarization to ensure a result is always produced.""", language="python")
 
     st.markdown("#### RoutingAgent — helper class in `agents/routing_agent.py`")
     st.markdown("""
@@ -1649,12 +1807,18 @@ with tab6:
 
 # TAB 7: Architecture
 with tab7:
+    _pv7 = st.session_state.pipeline_version
+    _arch_captions = {
+        "V1": "Version 1 — Baseline 5-node pipeline: intake, transcription, summarization, quality_score, end.",
+        "V3": "Version 3 — Full AI Suite: 17-node pipeline with PII, RAG, KB, sentiment, compliance, coaching, anomaly.",
+    }
     st.header("🏗️ System Architecture")
-    st.caption("Version 2 — Production-ready multi-agent call center AI with RAG, PII redaction, and sentiment analysis.")
+    st.caption(f"**Active pipeline: {_pv7}** — {_arch_captions[_pv7]}")
 
     # ── Overview Diagram ───────────────────────────────────────────────────────
     st.subheader("📐 Full System Diagram")
-    _arch_dot = """
+    if _pv7 == "V1":
+        _arch_dot = """
 digraph Architecture {
     rankdir=LR
     bgcolor=white
@@ -1666,7 +1830,76 @@ digraph Architecture {
         color="#1976d2"
         fontcolor="#1976d2"
         style=dashed
-        ui [label="Web Browser\n(7 Tabs)" shape=box fillcolor="#e3f2fd" color="#1976d2"]
+        ui [label="Web Browser\\n(7 Tabs)" shape=box fillcolor="#e3f2fd" color="#1976d2"]
+    }
+
+    subgraph cluster_workflow {
+        label="LangGraph Workflow V1 (5 Nodes)"
+        color="#4caf50"
+        fontcolor="#4caf50"
+        style=dashed
+        intake  [label="intake"        fillcolor="#bbdefb" color="#1976d2" shape=box]
+        transcr [label="transcription" fillcolor="#bbdefb" color="#1976d2" shape=box]
+        summ    [label="summarization" fillcolor="#bbdefb" color="#1976d2" shape=box]
+        qa      [label="quality_score" fillcolor="#bbdefb" color="#1976d2" shape=box]
+        end_n   [label="end"           fillcolor="#c8e6c9" color="#4caf50" shape=box]
+        errh    [label="error_handler" fillcolor="#ffe0b2" color="#f57c00" shape=box]
+    }
+
+    subgraph cluster_llm {
+        label="LLM Layer"
+        color="#9c27b0"
+        fontcolor="#9c27b0"
+        style=dashed
+        claude  [label="Claude\\nSonnet 4.5"   fillcolor="#f3e5f5" color="#9c27b0" shape=box]
+        gpt4    [label="GPT-4o"               fillcolor="#f3e5f5" color="#9c27b0" shape=box]
+        gemini  [label="Gemini 2.5\\nFlash"    fillcolor="#f3e5f5" color="#9c27b0" shape=box]
+        whisper [label="Whisper\\n(audio STT)" fillcolor="#f3e5f5" color="#9c27b0" shape=box]
+    }
+
+    subgraph cluster_stores {
+        label="Data Stores"
+        color="#ff6f00"
+        fontcolor="#ff6f00"
+        style=dashed
+        cache [label="SHA-256 Cache\\n(file-based)" fillcolor="#fff3e0" color="#ff6f00" shape=cylinder]
+        jsonl [label="Call History\\n(JSONL)"        fillcolor="#fff3e0" color="#ff6f00" shape=cylinder]
+    }
+
+    ui      -> cache   [label="check first" color="#ff6f00"]
+    ui      -> intake  [label="cache miss"  color="#4caf50"]
+    intake  -> transcr
+    transcr -> summ    [label="no errors"   color="#333333"]
+    transcr -> errh    [style=dashed color="#f57c00" label="errors"]
+    errh    -> summ    [style=dashed color="#f57c00"]
+    transcr -> whisper [label="audio"       color="#9c27b0" style=dashed]
+    summ    -> claude  [color="#9c27b0" style=dashed]
+    summ    -> gpt4    [color="#9c27b0" style=dashed]
+    summ    -> gemini  [color="#9c27b0" style=dashed]
+    qa      -> claude  [color="#9c27b0" style=dashed]
+    qa      -> gpt4    [color="#9c27b0" style=dashed]
+    qa      -> gemini  [color="#9c27b0" style=dashed]
+    summ    -> qa
+    qa      -> end_n
+    end_n   -> cache   [label="save"         color="#ff6f00"]
+    end_n   -> jsonl   [label="call history" color="#ff6f00"]
+    end_n   -> ui      [label="result"       color="#4caf50"]
+}
+"""
+    else:
+        _arch_dot = """
+digraph Architecture {
+    rankdir=LR
+    bgcolor=white
+    fontname=Helvetica
+    node [fontname=Helvetica fontsize=11 style=filled]
+
+    subgraph cluster_ui {
+        label="Streamlit UI"
+        color="#1976d2"
+        fontcolor="#1976d2"
+        style=dashed
+        ui [label="Web Browser\\n(7 Tabs)" shape=box fillcolor="#e3f2fd" color="#1976d2"]
     }
 
     subgraph cluster_workflow {
@@ -1697,10 +1930,10 @@ digraph Architecture {
         color="#9c27b0"
         fontcolor="#9c27b0"
         style=dashed
-        claude  [label="Claude\nSonnet 4.5"   fillcolor="#f3e5f5" color="#9c27b0" shape=box]
+        claude  [label="Claude\\nSonnet 4.5"   fillcolor="#f3e5f5" color="#9c27b0" shape=box]
         gpt4    [label="GPT-4o"               fillcolor="#f3e5f5" color="#9c27b0" shape=box]
-        gemini  [label="Gemini 2.5\nFlash"    fillcolor="#f3e5f5" color="#9c27b0" shape=box]
-        whisper [label="Whisper\n(audio STT)" fillcolor="#f3e5f5" color="#9c27b0" shape=box]
+        gemini  [label="Gemini 2.5\\nFlash"    fillcolor="#f3e5f5" color="#9c27b0" shape=box]
+        whisper [label="Whisper\\n(audio STT)" fillcolor="#f3e5f5" color="#9c27b0" shape=box]
     }
 
     subgraph cluster_stores {
@@ -1708,9 +1941,9 @@ digraph Architecture {
         color="#ff6f00"
         fontcolor="#ff6f00"
         style=dashed
-        cache   [label="SHA-256 Cache\n(file-based)" fillcolor="#fff3e0" color="#ff6f00" shape=cylinder]
-        chroma  [label="ChromaDB\n(vector store)"    fillcolor="#fff3e0" color="#ff6f00" shape=cylinder]
-        jsonl   [label="Call History\n(JSONL)"        fillcolor="#fff3e0" color="#ff6f00" shape=cylinder]
+        cache   [label="SHA-256 Cache\\n(file-based)" fillcolor="#fff3e0" color="#ff6f00" shape=cylinder]
+        chroma  [label="ChromaDB\\n(vector store)"    fillcolor="#fff3e0" color="#ff6f00" shape=cylinder]
+        jsonl   [label="Call History\\n(JSONL)"        fillcolor="#fff3e0" color="#ff6f00" shape=cylinder]
     }
 
     ui        -> cache      [label="check first" color="#ff6f00"]
@@ -1738,7 +1971,7 @@ digraph Architecture {
     coach     -> anom
     anom      -> end_n
     end_n     -> cache      [label="save" color="#ff6f00"]
-    end_n     -> chroma     [label="store\nembedding" color="#7b1fa2"]
+    end_n     -> chroma     [label="store\\nembedding" color="#7b1fa2"]
     end_n     -> jsonl      [label="call history" color="#ff6f00"]
     end_n     -> ui         [label="result" color="#4caf50"]
     transcr   -> whisper    [label="audio" color="#9c27b0" style=dashed]
@@ -1755,14 +1988,27 @@ digraph Architecture {
     st.subheader("🗂️ Version History")
     v_col1, v_col2, v_col3 = st.columns(3)
     with v_col1:
-        st.markdown("**Version 1 — Baseline**")
-        st.markdown("""
+        _v1_label = "**⬅️ Active — Version 1 — Baseline**" if _pv7 == "V1" else "**Version 1 — Baseline**"
+        st.markdown(_v1_label)
+        if _pv7 == "V1":
+            st.info("""
 - 5 agents: intake, transcription, summarization, quality_score, routing
 - LangGraph state machine with conditional routing
 - 3 LLMs: Claude, GPT-4o, Gemini 2.5 Flash
 - File-based SHA-256 cache
 - JSONL call history (memory layer)
-- Streamlit UI: 6 tabs
+- Streamlit UI: 7 tabs
+- Docker + docker-compose
+- OpenAI Whisper audio transcription
+        """)
+        else:
+            st.markdown("""
+- 5 agents: intake, transcription, summarization, quality_score, routing
+- LangGraph state machine with conditional routing
+- 3 LLMs: Claude, GPT-4o, Gemini 2.5 Flash
+- File-based SHA-256 cache
+- JSONL call history (memory layer)
+- Streamlit UI: 7 tabs
 - Docker + docker-compose
 - OpenAI Whisper audio transcription
         """)
@@ -1779,8 +2025,21 @@ digraph Architecture {
 - ✅ Architecture tab added
         """)
     with v_col3:
-        st.markdown("**Version 3 — Full AI Suite (current)**")
-        st.markdown("""
+        _v3_label = "**➡️ Active — Version 3 — Full AI Suite**" if _pv7 == "V3" else "**Version 3 — Full AI Suite**"
+        st.markdown(_v3_label)
+        if _pv7 == "V3":
+            st.info("""
+- ✅ **CustomerProfileAgent** — cross-call journey
+- ✅ **KnowledgeBaseAgent** — SOP compliance check
+- ✅ **AutoTaggingAgent** — multi-label routing tags
+- ✅ **CallCoachingAgent** — personalised coaching
+- ✅ **AnomalyDetectionAgent** — outlier flagging
+- ✅ **FeedbackLoopAgent** — coaching effectiveness
+- ✅ 17-node LangGraph pipeline
+- ✅ Zero-cost agents (no extra LLM calls for 3 of 6)
+        """)
+        else:
+            st.markdown("""
 - ✅ **CustomerProfileAgent** — cross-call journey
 - ✅ **KnowledgeBaseAgent** — SOP compliance check
 - ✅ **AutoTaggingAgent** — multi-label routing tags
