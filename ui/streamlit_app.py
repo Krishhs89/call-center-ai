@@ -65,6 +65,8 @@ if "v2_extras" not in st.session_state:
     st.session_state.v2_extras = {}  # pii_summary, sentiment, rag_context
 if "pipeline_version" not in st.session_state:
     st.session_state.pipeline_version = "V3"
+if "v1_comparison_result" not in st.session_state:
+    st.session_state.v1_comparison_result = None  # V1 baseline run alongside V3 for comparison tab
 
 
 def load_sample_transcript(sample_name: str) -> dict:
@@ -295,8 +297,8 @@ def _derive_highlights(summary) -> list:
 
 
 # Main content tabs
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
-    ["📤 Upload", "📋 Results", "⭐ QA Score", "🔬 Benchmark", "🗺️ Workflow", "📜 Call History", "🏗️ Architecture"]
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
+    ["📤 Upload", "📋 Results", "⭐ QA Score", "🔬 Benchmark", "🗺️ Workflow", "📜 Call History", "🏗️ Architecture", "📈 V1→V3 Gains"]
 )
 
 # TAB 1: Upload
@@ -443,9 +445,24 @@ with tab1:
                         if st.session_state.pipeline_version == "V1":
                             workflow = create_workflow_v1(llm_name=llm_choice)
                             call_result = run_workflow_v1(workflow, call_input, llm_name=llm_choice)
+                            st.session_state.v1_comparison_result = None
                         else:
                             workflow = create_workflow(llm_name=llm_choice)
                             call_result = run_workflow(workflow, call_input, llm_name=llm_choice)
+
+                            # Also run V1 silently for the V1→V3 comparison tab (cached)
+                            v1_cached = get_cached(transcript_input, llm_choice, "v1_comparison")
+                            if v1_cached:
+                                st.session_state.v1_comparison_result = CallResult.model_validate(v1_cached)
+                            else:
+                                with st.spinner("Running V1 baseline for comparison..."):
+                                    v1_wf = create_workflow_v1(llm_name=llm_choice)
+                                    v1_result = run_workflow_v1(v1_wf, call_input, llm_name=llm_choice)
+                                    v1_data = v1_result.model_dump()
+                                    v1_data["_cache_type"] = "v1_comparison"
+                                    v1_data["_llm_name"] = llm_choice
+                                    save_cache(transcript_input, llm_choice, "v1_comparison", v1_data)
+                                    st.session_state.v1_comparison_result = v1_result
 
                         # Save to cache with metadata tags
                         data = call_result.model_dump()
@@ -2166,6 +2183,334 @@ digraph Architecture {
 - ⬜ Role-based access control
 - ⬜ Load balancing (multiple EC2 / ECS)
 - ⬜ Auto-scaling policies
+        """)
+
+
+# TAB 8: V1→V3 Gains
+with tab8:
+    st.header("📈 V1 → V3 Processing Gains")
+
+    if st.session_state.pipeline_version == "V1":
+        st.info("Switch to **V3** in the sidebar to see how processing improves from V1 to V3 for the selected transcript.")
+    elif not st.session_state.call_result:
+        st.info("👈 Process a call with **V3** selected in the sidebar — this tab will show the side-by-side comparison automatically.")
+    elif not st.session_state.v1_comparison_result:
+        st.info("V1 baseline result not available. Re-process the current transcript with V3 selected to generate the comparison.")
+    else:
+        v1r = st.session_state.v1_comparison_result
+        v3r = st.session_state.call_result
+        extras = st.session_state.v2_extras
+
+        st.caption(
+            f"Comparing **V1 (5-node baseline)** vs **V3 (17-node full suite)** "
+            f"for call `{v3r.call_id}` · LLM: `{st.session_state.active_llm}`"
+        )
+
+        # ── SECTION 1: Pipeline Overview ──────────────────────────────────────
+        st.subheader("🔁 Pipeline Overview")
+        ov1, ov2, ov3, ov4 = st.columns(4)
+        with ov1:
+            st.metric("V1 Nodes", "5", help="intake → transcription → summarization → quality_score → end")
+        with ov2:
+            st.metric("V3 Nodes", "17", delta="+12 agents", help="Full AI suite including PII, RAG, KB, sentiment, compliance, coaching, anomaly")
+        with ov3:
+            st.metric("V1 LLM Calls", "2", help="summarization + quality_score")
+        with ov4:
+            st.metric("V3 LLM Calls", "7", delta="+5 enrichments", help="sentiment + compliance + escalation + summarization + auto_tagging + quality_score + call_coaching")
+
+        st.markdown("---")
+
+        # ── SECTION 2: QA Score Comparison ────────────────────────────────────
+        st.subheader("⭐ QA Score — V1 vs V3")
+        st.caption("V3 scores are informed by RAG context from similar past calls and KB articles injected into the prompt.")
+
+        v1_qa = v1r.qa_score
+        v3_qa = v3r.qa_score
+
+        if v1_qa and v3_qa:
+            q1, q2, q3 = st.columns(3)
+            v1_overall = v1_qa.overall_score
+            v3_overall = v3_qa.overall_score
+            delta_overall = v3_overall - v1_overall
+            with q1:
+                st.metric("V1 Overall Score", f"{v1_overall:.1f}/100")
+            with q2:
+                st.metric("V3 Overall Score", f"{v3_overall:.1f}/100",
+                          delta=f"{delta_overall:+.1f} pts")
+            with q3:
+                context_gain = "✅ Context-enriched" if extras.get("rag_context") or extras.get("kb_context") else "ℹ️ No prior history yet"
+                st.metric("RAG/KB Context", context_gain)
+
+            # Per-dimension breakdown
+            st.markdown("**Per-dimension score breakdown:**")
+            import pandas as pd
+            dims = {
+                "Empathy":         (v1_qa.empathy_score,         v3_qa.empathy_score),
+                "Professionalism": (v1_qa.professionalism_score, v3_qa.professionalism_score),
+                "Resolution":      (v1_qa.resolution_score,      v3_qa.resolution_score),
+                "Compliance":      (v1_qa.compliance_score,       v3_qa.compliance_score),
+            }
+            rows = []
+            for dim, (s1, s3) in dims.items():
+                rows.append({"Dimension": dim, "V1": s1, "V3": s3, "Delta": s3 - s1})
+            df_dims = pd.DataFrame(rows).set_index("Dimension")
+            dc1, dc2 = st.columns(2)
+            with dc1:
+                st.dataframe(
+                    df_dims.style.format({"V1": "{:.1f}", "V3": "{:.1f}", "Delta": "{:+.1f}"}),
+                    use_container_width=True,
+                )
+            with dc2:
+                st.bar_chart(df_dims[["V1", "V3"]])
+        else:
+            st.warning("QA scores not available for comparison.")
+
+        st.markdown("---")
+
+        # ── SECTION 3: Summary Quality Comparison ─────────────────────────────
+        st.subheader("📝 Summary Quality — V1 vs V3")
+        st.caption("V3 summary is generated with RAG context (similar past calls) and KB articles injected into the prompt.")
+
+        v1_sum = v1r.summary
+        v3_sum = v3r.summary
+
+        if v1_sum and v3_sum:
+            sc1, sc2 = st.columns(2)
+            with sc1:
+                st.markdown("**V1 Summary** _(no context)_")
+                st.info(v1_sum.summary)
+                s1c1, s1c2, s1c3 = st.columns(3)
+                with s1c1:
+                    st.metric("Key Points", len(v1_sum.key_points))
+                with s1c2:
+                    st.metric("Action Items", len(v1_sum.action_items))
+                with s1c3:
+                    st.metric("Resolution", v1_sum.resolution_status.value.title())
+            with sc2:
+                st.markdown("**V3 Summary** _(RAG + KB context injected)_")
+                st.success(v3_sum.summary)
+                s2c1, s2c2, s2c3 = st.columns(3)
+                with s2c1:
+                    kp_delta = len(v3_sum.key_points) - len(v1_sum.key_points)
+                    st.metric("Key Points", len(v3_sum.key_points), delta=f"{kp_delta:+d}" if kp_delta else None)
+                with s2c2:
+                    ai_delta = len(v3_sum.action_items) - len(v1_sum.action_items)
+                    st.metric("Action Items", len(v3_sum.action_items), delta=f"{ai_delta:+d}" if ai_delta else None)
+                with s2c3:
+                    st.metric("Resolution", v3_sum.resolution_status.value.title())
+
+            # Key points side by side
+            if v1_sum.key_points or v3_sum.key_points:
+                with st.expander("📋 Key Points — V1 vs V3", expanded=False):
+                    kp1, kp2 = st.columns(2)
+                    with kp1:
+                        st.markdown("**V1 Key Points**")
+                        for kp in v1_sum.key_points:
+                            st.markdown(f"• {kp}")
+                    with kp2:
+                        st.markdown("**V3 Key Points**")
+                        for kp in v3_sum.key_points:
+                            st.markdown(f"• {kp}")
+
+            if v1_sum.action_items or v3_sum.action_items:
+                with st.expander("✅ Action Items — V1 vs V3", expanded=False):
+                    ai1, ai2 = st.columns(2)
+                    with ai1:
+                        st.markdown("**V1 Action Items**")
+                        for ai in v1_sum.action_items:
+                            st.markdown(f"• {ai}")
+                    with ai2:
+                        st.markdown("**V3 Action Items**")
+                        for ai in v3_sum.action_items:
+                            st.markdown(f"• {ai}")
+        else:
+            st.warning("Summaries not available for comparison.")
+
+        st.markdown("---")
+
+        # ── SECTION 4: V3-Exclusive Enrichments ───────────────────────────────
+        st.subheader("🚀 V3-Exclusive Enrichments — Not Available in V1")
+        st.caption("These insights are produced by the 12 additional agents in V3. V1 produces none of them.")
+
+        enrichments_found = []
+
+        # PII Redaction
+        pii = extras.get("pii_summary", {})
+        total_pii = sum(pii.values()) if pii else 0
+        with st.expander(f"🔒 PII Redaction — {'**' + str(total_pii) + ' item(s) masked** before any LLM saw the transcript' if total_pii else 'No PII detected'}", expanded=total_pii > 0):
+            st.markdown("**What V1 did:** Sent raw transcript directly to the LLM — PII exposed.")
+            st.markdown("**What V3 does:** Regex-masks phone numbers, emails, SSNs, card numbers, and ZIP codes before any LLM call.")
+            if total_pii:
+                enrichments_found.append(f"PII: {total_pii} item(s) redacted")
+                for field, count in pii.items():
+                    st.caption(f"  • {field.replace('_', ' ').title()}: {count}")
+            else:
+                st.success("✅ No PII detected in this transcript — transcript was clean.")
+
+        # RAG Context
+        rag_ctx = extras.get("rag_context", "")
+        with st.expander(f"🔍 RAG Retrieval — {'**' + str(len(rag_ctx)) + ' chars** of similar-call context injected into summarization + QA prompts' if rag_ctx else 'No prior calls yet (first run)'}", expanded=bool(rag_ctx)):
+            st.markdown("**What V1 did:** Summarized and scored each call in isolation — no historical context.")
+            st.markdown("**What V3 does:** Embeds the transcript, retrieves top-3 semantically similar past calls from ChromaDB, and injects them as context into every LLM prompt — so scores are calibrated against real history.")
+            if rag_ctx:
+                enrichments_found.append("RAG: similar-call context injected")
+                with st.container():
+                    st.caption(rag_ctx[:500] + ("..." if len(rag_ctx) > 500 else ""))
+            else:
+                st.info("Process more calls to build up the vector store — RAG context will appear on subsequent calls.")
+
+        # KB Context
+        kb_analysis = extras.get("kb_analysis")
+        sop_score = kb_analysis.get("sop_compliance_score", 100.0) if kb_analysis else None
+        sop_icon = ("🟢" if sop_score >= 90 else "🟡" if sop_score >= 70 else "🔴") if sop_score is not None else "⚪"
+        with st.expander(f"📚 Knowledge Base — SOP Compliance {sop_icon} {sop_score:.0f}%" if sop_score is not None else "📚 Knowledge Base — not run", expanded=(sop_score is not None and sop_score < 80)):
+            st.markdown("**What V1 did:** No SOP awareness — agent could deviate from procedures without detection.")
+            st.markdown("**What V3 does:** Retrieves relevant SOPs and product articles, audits agent adherence, and flags knowledge gaps.")
+            if kb_analysis:
+                enrichments_found.append(f"KB: SOP compliance {sop_score:.0f}%")
+                missed = kb_analysis.get("missed_knowledge_opportunities", [])
+                if missed and missed != ["No major missed KB opportunities detected"]:
+                    st.warning("Missed KB opportunities detected:")
+                    for m in missed:
+                        st.caption(f"→ {m}")
+                else:
+                    st.success("✅ No major knowledge gaps detected.")
+
+        # Sentiment
+        sentiment = extras.get("sentiment")
+        if sentiment:
+            risk = sentiment.get("escalation_risk", "unknown")
+            risk_icon = {"high": "🔴", "medium": "🟡", "low": "🟢"}.get(risk, "⚪")
+            with st.expander(f"🎭 Sentiment Analysis — {risk_icon} Escalation risk: **{risk.upper()}**", expanded=risk == "high"):
+                st.markdown("**What V1 did:** No sentiment tracking — agent/customer tone was invisible.")
+                st.markdown("**What V3 does:** Scores every conversation turn individually, tracks sentiment trend, identifies escalation risk level and reason.")
+                enrichments_found.append(f"Sentiment: escalation risk {risk}")
+                sc1, sc2, sc3 = st.columns(3)
+                with sc1:
+                    st.metric("Overall Sentiment", sentiment.get("overall_customer_sentiment", "N/A").title())
+                with sc2:
+                    st.metric("Trend", sentiment.get("customer_sentiment_trend", "N/A").title())
+                with sc3:
+                    st.metric("Escalation Risk", f"{risk_icon} {risk.title()}")
+                if sentiment.get("escalation_risk_reason"):
+                    st.caption(f"Reason: {sentiment['escalation_risk_reason']}")
+
+        # Compliance
+        compliance = extras.get("compliance")
+        if compliance:
+            violations = compliance.get("violations", [])
+            comp_score = compliance.get("compliance_score", 100)
+            comp_icon = "🟢" if comp_score >= 90 else "🟡" if comp_score >= 70 else "🔴"
+            with st.expander(f"⚖️ Compliance Check — {comp_icon} Score: **{comp_score:.0f}/100**, {len(violations)} violation(s)", expanded=len(violations) > 0):
+                st.markdown("**What V1 did:** No compliance scanning — HIPAA/GDPR/PCI/TCPA violations went undetected.")
+                st.markdown("**What V3 does:** Scans every call for regulatory violations across HIPAA, GDPR, PCI-DSS, TCPA, and financial regulations.")
+                enrichments_found.append(f"Compliance: {len(violations)} violation(s), score {comp_score:.0f}/100")
+                if violations:
+                    for v in violations:
+                        sev_icon = {"critical": "🚨", "high": "🔴", "medium": "🟡", "low": "🟢"}.get(v.get("severity", ""), "⚪")
+                        st.caption(f"{sev_icon} [{v.get('category')}] {v.get('description', '')}")
+                else:
+                    st.success("✅ No compliance violations detected.")
+
+        # Escalation
+        escalation = extras.get("escalation")
+        if escalation:
+            risk_score = escalation.get("risk_score", 0)
+            risk_level = escalation.get("risk_level", "unknown")
+            esc_icon = {"low": "🟢", "medium": "🟡", "high": "🔴", "critical": "🚨"}.get(risk_level, "⚪")
+            with st.expander(f"🚨 Escalation Prediction — {esc_icon} Risk: **{risk_level.upper()}** ({risk_score:.0f}/100)", expanded=risk_level in ("high", "critical")):
+                st.markdown("**What V1 did:** No escalation prediction — supervisors had no advance warning.")
+                st.markdown("**What V3 does:** Combines sentiment, compliance, and transcript signals to predict escalation risk with trigger moments and recommended interventions.")
+                enrichments_found.append(f"Escalation: {risk_level} ({risk_score:.0f}/100)")
+                st.metric("Risk Score", f"{risk_score:.0f}/100")
+                if escalation.get("recommended_intervention"):
+                    st.markdown(f"**Recommended action:** {escalation['recommended_intervention']}")
+
+        # Customer Profile
+        customer_profile = extras.get("customer_profile")
+        if customer_profile:
+            risk_tier = customer_profile.get("risk_tier", "regular")
+            tier_icon = {"vip": "⭐", "at_risk": "⚠️", "churning": "🚨", "regular": "👤"}.get(risk_tier, "👤")
+            total_calls = customer_profile.get("total_calls_in_history", 0)
+            with st.expander(f"👤 Customer Profile — {tier_icon} {risk_tier.upper().replace('_', ' ')} ({total_calls} prior call(s))", expanded=risk_tier in ("at_risk", "churning")):
+                st.markdown("**What V1 did:** Treated every call as independent — no customer history awareness.")
+                st.markdown("**What V3 does:** Loads cross-call history, assigns a risk tier (VIP / at_risk / churning / regular), and surfaces trends for this customer.")
+                if total_calls > 0:
+                    enrichments_found.append(f"Customer profile: {risk_tier} tier, {total_calls} prior calls")
+                else:
+                    enrichments_found.append("Customer profile: new customer (first call)")
+
+        # Auto Tags
+        tags = extras.get("tags")
+        if tags and tags.get("primary_category"):
+            cat = tags.get("primary_category", "").replace("_", " ").title()
+            conf = tags.get("confidence_score", 0.0)
+            with st.expander(f"🏷️ Auto Tagging — Category: **{cat}** (confidence {conf:.0%})", expanded=False):
+                st.markdown("**What V1 did:** No automatic classification — routing and analytics required manual tagging.")
+                st.markdown("**What V3 does:** Assigns 5-taxonomy labels (category, sub-category, intent, routing, product, sentiment tags) for downstream routing and analytics.")
+                enrichments_found.append(f"Auto tags: {cat}")
+                t1, t2 = st.columns(2)
+                with t1:
+                    st.markdown(f"**Category:** `{tags.get('primary_category', 'N/A')}`")
+                    st.markdown(f"**Sub-category:** `{tags.get('sub_category', 'N/A')}`")
+                with t2:
+                    intents = tags.get("intent_tags", [])
+                    if intents:
+                        st.markdown("**Intent:** " + " ".join(f"`{i}`" for i in intents))
+
+        # Coaching
+        coaching = extras.get("coaching")
+        if coaching and coaching.get("coaching_tips") is not None:
+            priority = coaching.get("overall_coaching_priority", "low")
+            n_tips = len(coaching.get("coaching_tips", []))
+            p_icon = {"immediate": "🚨", "high": "🔴", "medium": "🟡", "low": "🟢"}.get(priority, "⚪")
+            with st.expander(f"🎓 Agent Coaching — {p_icon} {priority.upper()} priority, {n_tips} tip(s)", expanded=priority in ("immediate", "high")):
+                st.markdown("**What V1 did:** No coaching — QA scores were produced but no actionable feedback was generated.")
+                st.markdown("**What V3 does:** Generates personalised coaching tips with example scripts for each weak QA dimension, prioritised by impact.")
+                enrichments_found.append(f"Coaching: {n_tips} tips ({priority} priority)")
+                strengths = coaching.get("agent_strengths", [])
+                if strengths:
+                    st.markdown("**Strengths identified:**")
+                    for s in strengths:
+                        st.success(f"✓ {s}")
+                tips = coaching.get("coaching_tips", [])
+                for tip in tips[:3]:  # show top 3
+                    tip_icon = {"immediate": "🚨", "high": "🔴", "medium": "🟡", "low": "🟢"}.get(tip.get("priority", ""), "⚪")
+                    st.caption(f"{tip_icon} [{tip.get('dimension', '').replace('_', ' ').title()}] {tip.get('what_to_do_instead', '')[:120]}")
+
+        # Anomaly
+        anomaly = extras.get("anomaly")
+        if anomaly:
+            anomaly_level = anomaly.get("anomaly_level", "normal")
+            anomaly_score = anomaly.get("anomaly_score", 0.0)
+            a_icon = {"normal": "✅", "medium": "🟡", "high": "🔴", "critical": "🚨"}.get(anomaly_level, "⚪")
+            with st.expander(f"🔬 Anomaly Detection — {a_icon} {anomaly_level.upper()} (score {anomaly_score:.0f}/100)", expanded=anomaly.get("requires_review", False)):
+                st.markdown("**What V1 did:** No anomaly detection — outlier calls were indistinguishable from normal calls.")
+                st.markdown("**What V3 does:** Z-scores the call's QA score, duration, PII count, and compliance score against historical averages to flag outlier calls for QA review.")
+                enrichments_found.append(f"Anomaly: {anomaly_level} (score {anomaly_score:.0f}/100)")
+                if anomaly.get("requires_review"):
+                    st.error("⚠️ This call has been flagged for QA review.")
+                else:
+                    st.success("✅ Call within normal parameters — no anomaly flagged.")
+
+        st.markdown("---")
+
+        # ── SECTION 5: Summary scorecard ──────────────────────────────────────
+        st.subheader("🏆 Improvement Scorecard")
+        st.caption("What this specific transcript gained by running through V3 instead of V1.")
+
+        if enrichments_found:
+            for item in enrichments_found:
+                st.success(f"✅ {item}")
+        else:
+            st.info("Process more calls with V3 to build history — RAG context and customer profiles improve with each run.")
+
+        st.markdown(f"""
+**Bottom line for this transcript:**
+- V1 produced a summary and a QA score in **2 LLM calls** with no context.
+- V3 produced the same outputs **plus {len(enrichments_found)} enrichments** across 17 pipeline nodes.
+- The LLM prompts in V3 included RAG context from similar past calls and KB articles — leading to better-calibrated scores.
+- V3 surfaced actionable insights (PII exposure risk, compliance gaps, escalation signals, coaching tips) that V1 cannot produce.
         """)
 
 
