@@ -19,6 +19,7 @@ if str(_repo_root) not in sys.path:
 
 from agents.intake_agent import IntakeAgent
 from workflow.langgraph_flow import create_workflow, run_workflow
+from workflow.langgraph_flow_v1 import create_workflow_v1, run_workflow_v1
 from evaluation.benchmark import BenchmarkRunner
 from utils.schemas import CallInput, CallResult, BenchmarkResult, SummaryOutput, QAScore
 from utils.cache import get_cached, save_cache, list_cache_entries, delete_cache_entry, clear_cache
@@ -62,6 +63,8 @@ if "audio_filename" not in st.session_state:
     st.session_state.audio_filename = None
 if "v2_extras" not in st.session_state:
     st.session_state.v2_extras = {}  # pii_summary, sentiment, rag_context
+if "pipeline_version" not in st.session_state:
+    st.session_state.pipeline_version = "V3"
 
 
 def load_sample_transcript(sample_name: str) -> dict:
@@ -89,6 +92,21 @@ with st.sidebar:
         st.session_state.benchmark_result = None
         st.session_state.active_call_id = None
         st.session_state.active_llm = llm_choice
+
+    # Pipeline Version Selection
+    pipeline_version = st.radio(
+        "Pipeline Version:",
+        options=["V1 — Baseline (5 nodes)", "V3 — Full AI Suite (17 nodes)"],
+        index=1 if st.session_state.pipeline_version == "V3" else 0,
+        help="V1: intake→transcription→summarization→QA. V3: full 17-node pipeline with PII, RAG, sentiment, compliance, coaching.",
+    )
+    selected_version = "V3" if "V3" in pipeline_version else "V1"
+    if selected_version != st.session_state.pipeline_version:
+        st.session_state.pipeline_version = selected_version
+        st.session_state.call_result = None
+        st.session_state.benchmark_result = None
+        st.session_state.active_call_id = None
+        st.session_state.v2_extras = {}
 
     # API Key Check
     st.subheader("🔑 API Keys Status")
@@ -422,8 +440,12 @@ with tab1:
                             metadata=metadata,
                         )
 
-                        workflow = create_workflow(llm_name=llm_choice)
-                        call_result = run_workflow(workflow, call_input, llm_name=llm_choice)
+                        if st.session_state.pipeline_version == "V1":
+                            workflow = create_workflow_v1(llm_name=llm_choice)
+                            call_result = run_workflow_v1(workflow, call_input, llm_name=llm_choice)
+                        else:
+                            workflow = create_workflow(llm_name=llm_choice)
+                            call_result = run_workflow(workflow, call_input, llm_name=llm_choice)
 
                         # Save to cache with metadata tags
                         data = call_result.model_dump()
@@ -437,7 +459,7 @@ with tab1:
                         st.session_state.active_llm = llm_choice
                         # Capture V2 extras (PII, sentiment, RAG)
                         st.session_state.v2_extras = getattr(call_result, "_v2_extras", {})
-                        st.success(f"✓ Call {call_result.call_id} processed and cached")
+                        st.success(f"✓ Call {call_result.call_id} processed [{st.session_state.pipeline_version}] and cached")
 
             except Exception as e:
                 st.error(f"Error processing call: {str(e)}")
