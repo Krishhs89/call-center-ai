@@ -413,7 +413,9 @@ with tab1:
             transcript_input = sanitize_transcript(transcript_input)
             try:
                 # ── Check cache first ──────────────────────────────────────────
-                cached = get_cached(transcript_input, llm_choice, "workflow")
+                # V1 and V3 use separate cache keys so they never overwrite each other
+                _wf_cache_type = "workflow_v1" if st.session_state.pipeline_version == "V1" else "workflow"
+                cached = get_cached(transcript_input, llm_choice, _wf_cache_type)
                 if cached:
                     st.session_state.call_result = CallResult.model_validate(cached)
                     st.session_state.benchmark_result = None  # clear stale benchmark
@@ -422,9 +424,13 @@ with tab1:
                     # Clear audio transcript since this came from cache
                     st.session_state.audio_transcript = None
                     st.session_state.audio_filename = None
+                    # Restore V1 comparison from cache so Gains tab works on cache hits
+                    if st.session_state.pipeline_version == "V3":
+                        v1c = get_cached(transcript_input, llm_choice, "v1_comparison")
+                        st.session_state.v1_comparison_result = CallResult.model_validate(v1c) if v1c else None
                     st.success(
                         f"⚡ Loaded from cache — no LLM API call made! "
-                        f"Call {st.session_state.call_result.call_id} · LLM: {llm_choice}"
+                        f"Call {st.session_state.call_result.call_id} · LLM: {llm_choice} · [{st.session_state.pipeline_version}]"
                     )
                 else:
                     with st.spinner("Processing call..."):
@@ -464,11 +470,11 @@ with tab1:
                                     save_cache(transcript_input, llm_choice, "v1_comparison", v1_data)
                                     st.session_state.v1_comparison_result = v1_result
 
-                        # Save to cache with metadata tags
+                        # Save to cache — V1 and V3 use separate keys
                         data = call_result.model_dump()
-                        data["_cache_type"] = "workflow"
+                        data["_cache_type"] = _wf_cache_type
                         data["_llm_name"] = llm_choice
-                        save_cache(transcript_input, llm_choice, "workflow", data)
+                        save_cache(transcript_input, llm_choice, _wf_cache_type, data)
 
                         st.session_state.call_result = call_result
                         st.session_state.benchmark_result = None
@@ -2734,6 +2740,36 @@ with tab9:
 """)
         st.success("**Break-even:** V3's extra AI cost ($1,100–$2,200/month) is recovered by preventing **1 escalation per week** or **1 compliance incident per quarter**.")
         st.info("**Zero-cost agents:** CustomerProfile, AnomalyDetection, FeedbackLoop add insights at **$0 additional LLM cost**.")
+    st.markdown("")
+    st.markdown("#### 🧪 Precaching Cost — 33 Sample Transcripts × 3 Models × 4 Cache Types")
+    pc1, pc2 = st.columns([1, 1], gap="large")
+    with pc1:
+        st.markdown("""
+**What was precached (396 cache entries total):**
+
+| Cache Type | Description | LLM Calls |
+|---|---|---|
+| `workflow` (V3) | Full 17-node pipeline | 6 LLM agents |
+| `workflow_v1` (V1) | Baseline 5-node pipeline | 2 LLM agents |
+| `v1_comparison` | Gains tab baseline | 0 (reused V1 cache) |
+| `benchmark` | Summarization + QA only | 2 LLM agents |
+
+**Avg transcript:** ~75 tokens · **Avg output:** ~200 tokens/call
+""")
+    with pc2:
+        st.markdown("""
+**Cost breakdown (est.) — 33 files × 10 LLM calls/model:**
+
+| Model | Input cost | Output cost | **Total** |
+|---|---|---|---|
+| Claude Sonnet 4.5 | $0.49 | $1.04 | **~$1.53** |
+| GPT-4o | $0.41 | $0.69 | **~$1.10** |
+| Gemini 2.5 Flash | $0.02 | $0.04 | **~$0.07** |
+| OpenAI Embeddings (RAG) | <$0.01 | — | **~$0.00** |
+| **Grand total** | | | **~$2.70 – $4.50** |
+""")
+        st.success("**Gemini 2.5 Flash** is **22× cheaper** than Claude and **16× cheaper** than GPT-4o for the same workload — ideal for high-volume production.")
+        st.info("All 396 entries are now cached — subsequent app loads cost **$0 in API fees** until the cache is cleared.")
     st.markdown("---")
 
     # ════════════════════════════════════════════════════════════════════════
