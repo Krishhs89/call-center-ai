@@ -1745,6 +1745,90 @@ for logging and validation — **not** for the actual LangGraph routing (those a
 > The `RoutingAgent` methods are helpers for logging/testing that express the same logic in an OOP style.
     """)
 
+    st.markdown("---")
+
+    # ── SECTION 6: Evaluation & Guardrails ─────────────────────────────────────
+    st.subheader("🛡️ Evaluation & Guardrails")
+    st.caption("How the pipeline is made robust — input validation, output guardrails, LLM-as-judge, and observability.")
+
+    eg_col1, eg_col2 = st.columns(2, gap="large")
+    with eg_col1:
+        st.markdown("#### 🔒 Guardrail Layers")
+        if _pv == "V1":
+            st.markdown("""
+| Layer | Where | What it does |
+|---|---|---|
+| **Input sanitization** | `utils/validation.py` | Length limits (10–50K chars), null bytes, encoding |
+| **Structured output** | `utils/schemas.py` (Pydantic) | Every agent output validated; parse failures return safe defaults |
+| **Error accumulation** | `WorkflowStateV1.errors` | All errors collected in state — never silently dropped |
+| **Error recovery** | `error_handler` node | Skips to earliest incomplete step — always produces a result |
+| **Temperature control** | Agent constructors | Summarization `0.7`, QA scoring `0.7` — balanced responses |
+| **Mock mode** | `config/settings.py` | `MOCK_LLM=true` for zero-cost deterministic testing |
+| **LangSmith tracing** | All agent calls | Full token + latency trace per node in `call-center-ai` project |
+""")
+        else:
+            st.markdown("""
+| Layer | Where | What it does |
+|---|---|---|
+| **Input sanitization** | `utils/validation.py` | Length limits (10–50K chars), null bytes, encoding |
+| **Structured output** | `utils/schemas.py` (Pydantic) | Every agent output validated; parse failures return safe defaults |
+| **PII guardrail** | `pii_redaction` node | Regex masks SSN/card/phone/email/DOB **before any LLM call** |
+| **Compliance scanning** | `compliance_check` node | HIPAA / GDPR / PCI-DSS / TCPA / Financial — `temperature=0.1` |
+| **Anomaly detection** | `anomaly_detect` node | Rule-based flags + z-score vs historical mean ± 2σ |
+| **Error accumulation** | `WorkflowState.errors` | All errors collected in state — never silently dropped |
+| **Error recovery** | `error_handler` node | Skips enrichment nodes, rejoins at summarization — always produces a result |
+| **Temperature control** | Agent constructors | Compliance `0.1`, Escalation `0.2`, Sentiment `0.3`, Summarization `0.7` |
+| **Mock mode** | `config/settings.py` | `MOCK_LLM=true` for zero-cost deterministic testing |
+| **LangSmith tracing** | All agent calls | Full token + latency trace per node in `call-center-ai` project |
+""")
+
+    with eg_col2:
+        st.markdown("#### 🧑‍⚖️ LLM-as-Judge / Evaluation")
+        st.markdown("""
+**Multi-LLM Benchmark (cross-model judge)**
+
+The **Benchmark tab** runs the same transcript through all three LLMs and compares:
+- Summary quality and resolution status agreement
+- QA score distribution (highest performer highlighted)
+- Latency per model (tokens/second proxy)
+
+This acts as a cross-model judge — if Claude and GPT-4o agree but Gemini diverges, it signals a potential output quality issue.
+""")
+        st.markdown("""
+**Per-output validation (schema-level judge)**
+
+Every agent output is validated against a Pydantic schema before it enters the shared state:
+
+```python
+# QAScore — enforced ranges
+empathy_score:         float  # ge=0, le=25
+professionalism_score: float  # ge=0, le=25
+resolution_score:      float  # ge=0, le=25
+compliance_score:      float  # ge=0, le=25
+overall_score:         float  # ge=0, le=100
+```
+Out-of-range values are rejected; the agent returns a safe default rather than corrupt state.
+""")
+        if _pv == "V3":
+            st.markdown("""
+**Anomaly detection as an automated evaluator**
+
+`AnomalyDetectionAgent` acts as a post-hoc judge on every call:
+- Flags QA score < 50 as `critical`
+- Flags compliance score < 50 as `high`
+- Z-scores the call against historical average ± 2σ
+- Sets `requires_review=True` to route outliers to human QA
+""")
+        st.markdown("""
+**Feedback loop as a learning signal**
+
+`FeedbackLoopAgent` (V3, `end` node) compares current call scores against the agent's last 3 calls to measure whether coaching is improving performance — a closed-loop evaluation signal built into the pipeline.
+""" if _pv == "V3" else """
+**Feedback loop** (V3 only — upgrade from V1)
+
+V3 adds `FeedbackLoopAgent` that compares agent scores across calls to measure coaching effectiveness — a closed-loop evaluation signal not present in V1.
+""")
+
 
 # TAB 6: Call History (Memory Layer)
 with tab6:
@@ -2154,6 +2238,64 @@ digraph Architecture {
 
     st.markdown("---")
 
+    # ── Evaluation & Robustness ─────────────────────────────────────────────────
+    st.subheader("🛡️ Evaluation & Robustness Architecture")
+    ev_col1, ev_col2, ev_col3 = st.columns(3, gap="large")
+    with ev_col1:
+        st.markdown("**Input Guardrails**")
+        st.markdown("""
+| Check | Tool |
+|---|---|
+| Transcript length (10–50K chars) | `utils/validation.py` |
+| Null bytes / encoding | `sanitize_transcript()` |
+| Audio format + size (max 100MB) | `validate_audio_file()` |
+| Call ID format (3–64 alphanum) | `validate_call_id()` |
+| PII masking before LLM (V3) | `PIIRedactionAgent` regex |
+""")
+        st.markdown("**Output Guardrails**")
+        st.markdown("""
+| Check | Tool |
+|---|---|
+| Schema enforcement | Pydantic v2 on all outputs |
+| Score ranges (0–25 / 0–100) | `QAScore` field constraints |
+| Enum validation | `ResolutionStatus`, compliance levels |
+| Parse failure fallback | Each agent returns safe defaults |
+| State error list | `errors[]` never silently dropped |
+""")
+    with ev_col2:
+        st.markdown("**LLM-as-Judge / Evaluation**")
+        st.markdown("""
+| Evaluator | Mechanism |
+|---|---|
+| **Cross-model benchmark** | Claude vs GPT-4o vs Gemini on same transcript — agreement = confidence |
+| **Schema validator** | Pydantic rejects malformed LLM output before it enters state |
+| **Anomaly detector** (V3) | Z-score vs history ± 2σ; flags outliers for human QA review |
+| **Compliance checker** (V3) | LLM judges agent behaviour against HIPAA/GDPR/PCI/TCPA rules at `temp=0.1` |
+| **Feedback loop** (V3) | Compares agent scores across calls — measures coaching effectiveness |
+| **LangSmith traces** | Token count, latency, and full prompt/response logged per node |
+""")
+    with ev_col3:
+        st.markdown("**Temperature Calibration by Task**")
+        st.markdown("""
+| Agent | Temp | Reason |
+|---|---|---|
+| Compliance | `0.1` | Needs consistency — low variance |
+| Escalation | `0.2` | Conservative — avoid false positives |
+| Sentiment | `0.3` | Some variation acceptable |
+| Summarization | `0.7` | Balanced natural language |
+| QA Scoring | `0.7` | Balanced scoring |
+""")
+        st.markdown("**Error Recovery Strategy**")
+        st.markdown("""
+- Every node wrapped in `try/except`
+- Errors appended to `state["errors"]`
+- `error_handler` routes to earliest incomplete step
+- Pipeline **always produces a result** — no silent failures
+- Graceful degradation: enrichment nodes (PII/RAG/KB) failures don't block summarization
+""")
+
+    st.markdown("---")
+
     # ── Production Checklist ───────────────────────────────────────────────────
     st.subheader("✅ Production Readiness Checklist")
     check_col1, check_col2 = st.columns(2)
@@ -2174,8 +2316,13 @@ digraph Architecture {
 - ✅ Knowledge base SOP compliance
 - ✅ Multi-label auto-tagging & routing
 - ✅ Personalised agent coaching
-- ✅ Statistical anomaly detection
+- ✅ Statistical anomaly detection (z-score ± 2σ)
 - ✅ Coaching feedback loop
+- ✅ Pydantic schema validation on all outputs
+- ✅ Input sanitization (length, encoding, format)
+- ✅ Cross-model LLM benchmark (LLM-as-judge)
+- ✅ Temperature calibration per agent task type
+- ✅ Graceful degradation (enrichment failures don't block core output)
         """)
     with check_col2:
         st.markdown("""
